@@ -1,0 +1,5 @@
+{
+  "name": "limit-resume",
+  "version": "0.1.0",
+  "description": "Auto-resumes a turn killed by a rate limit or API error once the limit resets; shows 5h/7d usage and warns at 85%."
+}

@@ -1,0 +1,23 @@
+{
+  "name": "tempered-plugins",
+  "owner": {
+    "name": "Tempered Works"
+  },
+  "plugins": [
+    {
+      "name": "limit-resume",
+      "source": "./limit-resume",
+      "description": "Auto-resumes a turn killed by a rate limit or API error once the limit resets; shows 5h/7d usage and warns at 85%."
+    },
+    {
+      "name": "ship-state",
+      "source": "./ship-state",
+      "description": "Band above the prompt: branch, dirty files, ahead/behind, PR, CI and prod deploy for the repo the session works in; toasts when CI finishes or prod goes live."
+    },
+    {
+      "name": "timeline",
+      "source": "./timeline",
+      "description": "Vertical orchestration timeline: talk on the left, work milestones with progress and live subagent cards on the right, per repo across sessions."
+    }
+  ]
+}

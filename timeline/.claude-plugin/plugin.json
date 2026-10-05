@@ -1,0 +1,6 @@
+{
+  "name": "timeline",
+  "version": "0.1.0",
+  "description": "Vertical orchestration timeline: talk on the left, work milestones with progress and live subagent cards on the right, per repo across sessions.",
+  "types": "./types/index.d.ts"
+}

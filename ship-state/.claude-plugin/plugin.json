@@ -1,0 +1,6 @@
+{
+  "name": "ship-state",
+  "version": "0.1.0",
+  "description": "Band above the prompt: branch, dirty files, ahead/behind, PR, CI and prod deploy for the repo the session works in; toasts when CI finishes or prod goes live.",
+  "types": "./types/index.d.ts"
+}
