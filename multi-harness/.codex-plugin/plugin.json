@@ -1,0 +1,24 @@
+{
+  "name": "platform-orchestrator",
+  "version": "0.1.0",
+  "description": "Reusable wave-based platform orchestration skills for planning, branch/PR execution, tracker sync, QA evidence, and closeout across products.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Platform Orchestrator",
+    "shortDescription": "Plan, ship, verify, and track multi-wave platform work.",
+    "longDescription": "Platform Orchestrator packages reusable Codex skills for turning large product/platform backlogs into agent lanes, implementation waves, branch and PR gates, GitHub/Notion tracker updates, QA evidence, and safe closeout. It is intentionally generic so the same pattern can be reused across ventures without hard-coding one repository.",
+    "developerName": "Tempered Works",
+    "category": "Productivity",
+    "capabilities": [
+      "Wave planning",
+      "Branch and PR orchestration",
+      "Tracker synchronization",
+      "QA evidence collection",
+      "Safety review"
+    ],
+    "defaultPrompt": "Use Platform Orchestrator to turn this backlog into shippable waves, branch/PR gates, tracker updates, and verification evidence."
+  }
+}

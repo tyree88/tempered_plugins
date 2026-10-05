@@ -8,6 +8,8 @@ Claude Code mods from Tempered Works. Each one is a plugin of function hooks: it
 | [timeline](#timeline) | A side pane with a vertical timeline: your asks and decisions on the left, Claude's milestones with progress bars and live subagent cards on the right. | A few output tokens per logged milestone |
 | [limit-resume](#limit-resume) | A status line with 5-hour and 7-day usage. Resumes a turn cut off by a rate limit or API error once it clears. | None |
 
+Also here, for Codex rather than Claude Code: [multi-harness](#multi-harness), the Platform Orchestrator skills.
+
 ## Install
 
 As a marketplace:
@@ -68,6 +70,23 @@ Status: built and reviewed, live testing in progress.
 - `/autoresume on|off|status`. Typing anything while a resume is pending cancels it.
 
 Note: Claude Code has a built-in `autoContinueAtUsageLimit` setting for usage limits. Use one or the other for limits, not both, or the turn gets two "continue" messages.
+
+## multi-harness
+
+The Platform Orchestrator plugin for Codex (`multi-harness/.codex-plugin/plugin.json`, plugin name `platform-orchestrator`). Its six skills cover:
+
+- turning a large backlog into agent lanes and implementation waves
+- branch and PR gates
+- GitHub and Notion tracker sync
+- QA evidence
+- safety review
+- closeout
+
+Templates are in `assets/templates/`. It is not part of the Claude Code marketplace above. Install it through Codex's plugin flow. `python3 multi-harness/scripts/check_plugin_structure.py` validates its layout.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
 
 ## Development
 
