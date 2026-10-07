@@ -20,92 +20,95 @@ const parse = (text: string | undefined) => {
   }
 }
 
+// Shared by the hooks and the top-level helpers below: the loader lets $ reach only functions declared at the top of this file.
+const st = {
+  dir: undefined as string | undefined,
+  cur: null as Snap | null,
+  gh: 'gh',
+  remoteAt: 0,
+  watchUntil: 0,
+  isBusy: false,
+  seen: { ciPending: '', prod: '' },
+}
+
+const run = async ($: Engine, argv: string[], cwd?: string) => {
+  try {
+    const r = await $.process.run(argv, cwd ? { cwd, timeoutMs: 15_000 } : { timeoutMs: 15_000 })
+    return r.exitCode === 0 ? r.stdout.trim() : undefined
+  } catch {
+    return undefined
+  }
+}
+const toplevel = ($: Engine, path: string) => run($, ['git', '-C', path, 'rev-parse', '--show-toplevel'])
+
+const notify = ($: Engine, s: Snap) => {
+  if (s.ci?.pending) st.seen.ciPending = s.ci.sha
+  else if (s.ci && st.seen.ciPending === s.ci.sha) {
+    st.seen.ciPending = ''
+    const sha = s.ci.sha.slice(0, 7)
+    $.ui.toast(s.ci.failed.length ? `CI ✗ ${s.ci.failed.join(', ')} @${sha}` : `CI ✓ all ${s.ci.total} green @${sha}`, {
+      timeoutMs: 10_000,
+    })
+  }
+  const key = s.prod ? `${s.prod.sha}:${s.prod.state}` : ''
+  if (st.seen.prod && s.prod && key !== st.seen.prod) {
+    const sha = s.prod.sha.slice(0, 7)
+    if (s.prod.state === 'success') $.ui.toast(`Live on prod: ${sha}${s.prod.url ? ` → ${s.prod.url}` : ''}`, { timeoutMs: 15_000 })
+    if (s.prod.state === 'failure' || s.prod.state === 'error') $.ui.toast(`Prod deploy ${s.prod.state}: ${sha}`, { timeoutMs: 15_000 })
+  }
+  st.seen.prod = key
+}
+
+const refresh = async ($: Engine, wantRemote: boolean) => {
+  const d = st.dir // a `cd` can move `dir` mid-refresh; this snapshot stays on one repo
+  if (st.isBusy || !d) return
+  st.isBusy = true
+  const git = (...args: string[]) => run($, ['git', ...args], d)
+  const api = async (path: string) => parse(await run($, [st.gh, 'api', `repos/{owner}/{repo}/${path}`], d))
+  try {
+    const head = await git('rev-parse', 'HEAD')
+    if (!head) {
+      st.cur = null
+      await update($, snap, () => null)
+      return
+    }
+    const branch = (await git('symbolic-ref', '--short', '-q', 'HEAD')) ?? `detached ${head.slice(0, 7)}`
+    const dirty = ((await git('status', '--porcelain')) ?? '').split('\n').filter(Boolean).length
+    const counts = await git('rev-list', '--left-right', '--count', '@{u}...HEAD')
+    const [behind, ahead] = counts ? counts.split(/\s+/).map(Number) : [null, null]
+    const s: Snap = { ...(st.cur?.dir === d ? st.cur : {}), dir: d, branch, head, dirty, ahead, behind }
+
+    const now = await $.clock.now()
+    if (wantRemote || isPending(st.cur) || now < st.watchUntil || now - st.remoteAt > REMOTE_EVERY) {
+      st.remoteAt = now
+      const upstream = await git('rev-parse', '@{u}')
+      const runs = upstream && (await api(`commits/${upstream}/check-runs?per_page=100`))
+      const status = upstream && (await api(`commits/${upstream}/status`))
+      s.ci = upstream && (runs || status)
+        ? { sha: upstream, ...summarize(runs?.check_runs ?? [], status?.statuses ?? []) }
+        : undefined
+      s.pr = branch.startsWith('detached') ? undefined : parse(await run($, [st.gh, 'pr', 'view', '--json', 'number,state'], d))
+      const dep = (await api('deployments?environment=Production&per_page=1'))?.[0]
+      const last = dep && (await api(`deployments/${dep.id}/statuses?per_page=1`))?.[0]
+      s.prod = dep
+        ? { sha: dep.sha, state: last?.state ?? 'pending', url: last?.environment_url, at: last?.created_at ?? dep.created_at }
+        : undefined
+      notify($, s)
+    }
+    st.cur = s
+    await update($, snap, () => s)
+  } finally {
+    st.isBusy = false
+  }
+}
+
 export const register: Register = on => {
-  let dir: string | undefined
-  let cur: Snap | null = null
-  let gh = 'gh'
-  let remoteAt = 0
-  let watchUntil = 0
-  let isBusy = false
-  const seen = { ciPending: '', prod: '' }
-
-  const run = async ($: Engine, argv: string[], cwd?: string) => {
-    try {
-      const r = await $.process.run(argv, cwd ? { cwd, timeoutMs: 15_000 } : { timeoutMs: 15_000 })
-      return r.exitCode === 0 ? r.stdout.trim() : undefined
-    } catch {
-      return undefined
-    }
-  }
-  const toplevel = ($: Engine, path: string) => run($, ['git', '-C', path, 'rev-parse', '--show-toplevel'])
-
-  const notify = ($: Engine, s: Snap) => {
-    if (s.ci?.pending) seen.ciPending = s.ci.sha
-    else if (s.ci && seen.ciPending === s.ci.sha) {
-      seen.ciPending = ''
-      const sha = s.ci.sha.slice(0, 7)
-      $.ui.toast(s.ci.failed.length ? `CI ✗ ${s.ci.failed.join(', ')} @${sha}` : `CI ✓ all ${s.ci.total} green @${sha}`, {
-        timeoutMs: 10_000,
-      })
-    }
-    const key = s.prod ? `${s.prod.sha}:${s.prod.state}` : ''
-    if (seen.prod && s.prod && key !== seen.prod) {
-      const sha = s.prod.sha.slice(0, 7)
-      if (s.prod.state === 'success') $.ui.toast(`Live on prod: ${sha}${s.prod.url ? ` → ${s.prod.url}` : ''}`, { timeoutMs: 15_000 })
-      if (s.prod.state === 'failure' || s.prod.state === 'error') $.ui.toast(`Prod deploy ${s.prod.state}: ${sha}`, { timeoutMs: 15_000 })
-    }
-    seen.prod = key
-  }
-
-  const refresh = async ($: Engine, wantRemote: boolean) => {
-    const d = dir // a `cd` can move `dir` mid-refresh; this snapshot stays on one repo
-    if (isBusy || !d) return
-    isBusy = true
-    const git = (...args: string[]) => run($, ['git', ...args], d)
-    const api = async (path: string) => parse(await run($, [gh, 'api', `repos/{owner}/{repo}/${path}`], d))
-    try {
-      const head = await git('rev-parse', 'HEAD')
-      if (!head) {
-        cur = null
-        await update($, snap, () => null)
-        return
-      }
-      const branch = (await git('symbolic-ref', '--short', '-q', 'HEAD')) ?? `detached ${head.slice(0, 7)}`
-      const dirty = ((await git('status', '--porcelain')) ?? '').split('\n').filter(Boolean).length
-      const counts = await git('rev-list', '--left-right', '--count', '@{u}...HEAD')
-      const [behind, ahead] = counts ? counts.split(/\s+/).map(Number) : [null, null]
-      const s: Snap = { ...(cur?.dir === d ? cur : {}), dir: d, branch, head, dirty, ahead, behind }
-
-      const now = await $.clock.now()
-      if (wantRemote || isPending(cur) || now < watchUntil || now - remoteAt > REMOTE_EVERY) {
-        remoteAt = now
-        const upstream = await git('rev-parse', '@{u}')
-        const runs = upstream && (await api(`commits/${upstream}/check-runs?per_page=100`))
-        const status = upstream && (await api(`commits/${upstream}/status`))
-        s.ci = upstream && (runs || status)
-          ? { sha: upstream, ...summarize(runs?.check_runs ?? [], status?.statuses ?? []) }
-          : undefined
-        s.pr = branch.startsWith('detached') ? undefined : parse(await run($, [gh, 'pr', 'view', '--json', 'number,state'], d))
-        const dep = (await api('deployments?environment=Production&per_page=1'))?.[0]
-        const last = dep && (await api(`deployments/${dep.id}/statuses?per_page=1`))?.[0]
-        s.prod = dep
-          ? { sha: dep.sha, state: last?.state ?? 'pending', url: last?.environment_url, at: last?.created_at ?? dep.created_at }
-          : undefined
-        notify($, s)
-      }
-      cur = s
-      await update($, snap, () => s)
-    } finally {
-      isBusy = false
-    }
-  }
-
   on('session.start', async ($, e, next) => {
-    dir = await toplevel($, await $.session.cwd())
+    st.dir = await toplevel($, await $.session.cwd())
     // The desktop app's PATH may lack Homebrew or /usr/local: try the usual install locations.
     for (const candidate of ['gh', '/opt/homebrew/bin/gh', '/usr/local/bin/gh']) {
       if (await run($, [candidate, '--version'], undefined)) {
-        gh = candidate
+        st.gh = candidate
         break
       }
     }
@@ -119,16 +122,16 @@ export const register: Register = on => {
     const ran = await next(e)
     if (e.agentId) return ran
 
-    const target = lastCd(e.command, dir ?? (await $.session.cwd()))
+    const target = lastCd(e.command, st.dir ?? (await $.session.cwd()))
     const top = target && (await toplevel($, target))
-    if (top && top !== dir) {
-      dir = top
-      cur = null
-      remoteAt = 0 // new repo: fetch its CI/prod now, not in 5 min
-      seen.ciPending = seen.prod = ''
+    if (top && top !== st.dir) {
+      st.dir = top
+      st.cur = null
+      st.remoteAt = 0 // new repo: fetch its CI/prod now, not in 5 min
+      st.seen.ciPending = st.seen.prod = ''
     }
     const isPushed = PUSH.test(e.command) && ran.deny === undefined && ran.isError !== true
-    if (isPushed) watchUntil = (await $.clock.now()) + WATCH
+    if (isPushed) st.watchUntil = (await $.clock.now()) + WATCH
     if (top || isPushed || /\b(git|gh)\b/.test(e.command)) void refresh($, isPushed)
     return ran
   })
