@@ -46,6 +46,33 @@ assert.equal(reason('rename the helper function formatPrice and update every cal
 assert.equal(kind('run the tests', ['run the tests']), null) // too short
 assert.equal(kind('write the migration for the orders table', earlier), null) // different words
 
+// regressions: ordinary developer prompts must not nudge
+for (const t of [
+  'exactly 3 retries please',
+  'make it exactly 80 chars wide',
+  'make the layout pixel perfect',
+  'can you log this error to sentry',
+  "log this function's output",
+  'why did you choose zod?',
+  'the second time I click the button it throws',
+  'update the README, CHANGELOG and LICENSE',
+  'support GET, POST, PATCH and DELETE',
+  'run it again please',
+  "I'd love it if the header was sticky",
+]) assert.equal(kind(t), null, t)
+assert.equal(kind('fix the styling on page 3 of the report', ['fix the styling on page 2 of the report']), null) // digits keep pages apart
+
+// regressions: explicit asks, standalone praise, praise that opens a request, extra frustration forms
+for (const t of ['log this as a win', 'add this win to learnings', 'exactly', 'perfect, can you now add tests for it?'])
+  assert.equal(kind(t), 'win', t)
+for (const t of [
+  'log this to pitfalls',
+  'I told you not to touch the config',
+  'no, I said use the helper',
+  'still failing',
+  'this is the second time we fixed this',
+]) assert.equal(kind(t), 'pitfall', t)
+
 // "y" replies
 assert.ok(isYes('y'))
 assert.ok(isYes('Yes'))
