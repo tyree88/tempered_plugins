@@ -42,34 +42,33 @@ const usageLine = (ws: Window[]) =>
     .map(w => `${w.kind === 'five_hour' ? '5h' : w.kind === 'seven_day' ? '7d' : w.kind} ${Math.round(w.percentUsed)}%`)
     .join(' · ')
 
+// Shared by the hooks and the top-level helpers below: the loader lets $ reach only functions declared at the top of this file.
+const s: { timer?: Timer; tick?: Timer; attempt: number; warned: string } = { attempt: 0, warned: '' }
+
+const stop = () => {
+  s.timer?.cancel()
+  s.tick?.cancel()
+  s.timer = s.tick = undefined
+}
+
+const showUsage = async ($: Engine) => {
+  const { rateLimits } = await $.session.usage()
+  if (!s.timer) $.ui.status(rateLimits.length ? usageLine(rateLimits) : undefined)
+  const five = rateLimits.find(w => w.kind === 'five_hour')
+  if (five && five.percentUsed >= WARN_AT && five.percentUsed < 100 && s.warned !== five.resetsAt) {
+    s.warned = five.resetsAt ?? 'seen'
+    $.ui.toast(`5h window ${Math.round(five.percentUsed)}% used. Good moment to commit a checkpoint.`, {
+      timeoutMs: 10_000,
+    })
+  }
+  return rateLimits
+}
+
+const paint = async ($: Engine, label: string, due: number) =>
+  $.ui.status(`⏸ ${label}: auto-resume in ${fmt(due - (await $.clock.now()))} · /autoresume off cancels`)
+
 export const register: Register = on => {
-  let host: Engine | undefined
-  let timer: Timer | undefined
-  let tick: Timer | undefined
-  let attempt = 0
-  let warned = ''
-
-  const stop = () => {
-    timer?.cancel()
-    tick?.cancel()
-    timer = tick = undefined
-  }
-
-  const showUsage = async ($: Engine) => {
-    const { rateLimits } = await $.session.usage()
-    if (!timer) $.ui.status(rateLimits.length ? usageLine(rateLimits) : undefined)
-    const five = rateLimits.find(w => w.kind === 'five_hour')
-    if (five && five.percentUsed >= WARN_AT && five.percentUsed < 100 && warned !== five.resetsAt) {
-      warned = five.resetsAt ?? 'seen'
-      $.ui.toast(`5h window ${Math.round(five.percentUsed)}% used. Good moment to commit a checkpoint.`, {
-        timeoutMs: 10_000,
-      })
-    }
-    return rateLimits
-  }
-
   on('session.start', async ($, e, next) => {
-    host = $
     await $.command.register({
       name: 'autoresume',
       description: 'limit-resume: turn auto-resume after rate limits on or off',
@@ -85,12 +84,12 @@ export const register: Register = on => {
     if (arg === 'off') stop()
     const isOn = (await $.store.get('enabled')) !== false
     await showUsage($)
-    return { text: `limit-resume is ${isOn ? 'on' : 'off'}${timer ? '; a resume is scheduled' : ''}.` }
+    return { text: `limit-resume is ${isOn ? 'on' : 'off'}${s.timer ? '; a resume is scheduled' : ''}.` }
   })
 
   // You typed something while a resume was pending: you took over.
   on('prompt.submit', ($, e, next) => {
-    if (timer && (e.origin.kind === 'composer' || e.origin.kind === 'bridge')) {
+    if (s.timer && (e.origin.kind === 'composer' || e.origin.kind === 'bridge')) {
       stop()
       void showUsage($)
     }
@@ -104,7 +103,7 @@ export const register: Register = on => {
     const windows = await showUsage($)
     const kind = classify(e.reason, e.answer, windows)
     if (!kind) {
-      attempt = 0
+      s.attempt = 0
       return result
     }
     if (kind === 'fatal') {
@@ -112,28 +111,25 @@ export const register: Register = on => {
       return result
     }
     if ((await $.store.get('enabled')) === false) return result
-    if (attempt >= MAX_TRIES) {
+    if (s.attempt >= MAX_TRIES) {
       $.ui.toast(`limit-resume: gave up after ${MAX_TRIES} tries.`)
-      attempt = 0
+      s.attempt = 0
       return result
     }
 
-    const runner = host ?? $
     const now = await $.clock.now()
-    const wait = delayMs(kind, attempt++, windows, now)
+    const wait = delayMs(kind, s.attempt++, windows, now)
     const due = now + wait
     const label = kind === 'limit' ? 'Rate limit' : 'API error'
-    const paint = async () =>
-      runner.ui.status(`⏸ ${label}: auto-resume in ${fmt(due - (await runner.clock.now()))} · /autoresume off cancels`)
 
     stop()
-    timer = runner.clock.after(wait, () => {
+    s.timer = $.clock.after(wait, () => {
       stop()
-      runner.ui.status('▶ limit-resume: resuming…')
-      void runner.prompt.submit({ text: RESUME })
+      $.ui.status('▶ limit-resume: resuming…')
+      void $.prompt.submit({ text: RESUME })
     })
-    tick = runner.clock.every(MIN, () => void paint())
-    await paint()
+    s.tick = $.clock.every(MIN, () => void paint($, label, due))
+    await paint($, label, due)
     $.ui.toast(`limit-resume: ${label.toLowerCase()}. Resuming in ${fmt(wait)}.`, { timeoutMs: 8000 })
     return result
   })
