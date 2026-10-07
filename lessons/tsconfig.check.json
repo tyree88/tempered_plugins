@@ -11,5 +11,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["../.claude/types/claude-code.d.ts", "hooks", "types"]
+  "include": ["../.claude/types/claude-code.d.ts", "hooks", "types", "lessons.test.ts"]
 }
