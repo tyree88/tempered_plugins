@@ -79,15 +79,21 @@ export const register: Register = on => {
   })
 
   // Registered before `/followups`, so it nests outside it (a plugin's registrations nest in order, first
-  // outermost). A local command clears the box with no prompt.edit, and /clear starts no session.
+  // outermost). A local command clears the box with no prompt.edit.
   on('command.run', async ($, e, next) => {
-    if (e.command === 'clear') {
-      seq += 1
-      await update($, view, () => ({ ...EMPTY, seq }))
-    }
     const out = await next(e)
     void syncDraft(host ?? $)
     return out
+  })
+
+  // /clear and resume start no session.start for the new conversation: drop the old one's options here.
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear' || e.reason === 'resume') {
+      seq += 1
+      isDraft = false
+      await update($, view, () => ({ ...EMPTY, seq }))
+    }
+    return next(e)
   })
 
   on('command.run', { command: 'followups' }, async ($, e) => {
