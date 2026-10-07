@@ -138,21 +138,26 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // Stacks: our row, then whatever the plugins beneath drew (followups' options).
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const beneath = await next(e)
     const s = await read($, snap)
-    if (!s || e.props.hasSurvey) return next(e)
+    if (!s || e.props.hasSurvey) return beneath
 
     const { Box, Text } = $.ui.resolve(e)
     const now = await $.clock.now()
 
     return (
-      <Box flexDirection="row">
-        {segments(s, now).map((seg, i) => (
-          <Text key={String(i)} color={TONE[seg.tone]} dimColor={seg.tone === 'dim'} wrap="truncate">
-            {i ? '  ·  ' : ''}
-            {seg.text}
-          </Text>
-        ))}
+      <Box flexDirection="column">
+        <Box flexDirection="row">
+          {segments(s, now).map((seg, i) => (
+            <Text key={String(i)} color={TONE[seg.tone]} dimColor={seg.tone === 'dim'} wrap="truncate">
+              {i ? '  ·  ' : ''}
+              {seg.text}
+            </Text>
+          ))}
+        </Box>
+        {beneath}
       </Box>
     )
   })
