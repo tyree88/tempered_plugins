@@ -3,9 +3,8 @@ import type { EngineInterface as Engine, Register } from 'claude-code'
 
 import type { Entry, LiveAgent, View } from '../types'
 import { renderSvg, renderText } from './draw'
-import { identify, openStore, run, type Repo, type Store } from './io'
 import { buildNodes, paginate, summarize } from './layout'
-import { ciFact, clip, factsFromBash, fromLog, lastCd, mainArg, mergeEntries, tzMinutes, type Found } from './model'
+import { ciFact, clip, factsFromBash, folderName, fromLog, lastCd, mainArg, mergeEntries, parseJsonl, repoRoot, toJsonl, tzMinutes, type Found } from './model'
 
 const view = atom({ plugin: 'timeline', key: 'view' } as const, null)
 
@@ -35,130 +34,282 @@ const INPUT_SCHEMA = {
   },
 }
 
-export const register: Register = on => {
-  let host: Engine | undefined
-  let session = ''
-  let home = ''
-  let tz = 0
-  let repo: Repo | undefined
-  let store: Store | undefined
-  let branch: string | undefined
-  let seq = 0
-  let page = 0
-  let entries: Entry[] = []
-  let bad = 0
-  let activeTask: string | undefined
-  let hasAutoOpened = false
-  let hasWarnedWrite = false
-  let useSection = true
-  let lastNewest = ''
-  let drawSeq = 0
-  let ready: Promise<void> = Promise.resolve()
-  const live: Record<string, LiveAgent> = {}
+// A host command's trimmed stdout, or undefined on a non-zero exit or a spawn failure.
+async function run($: Engine, argv: string[], cwd?: string): Promise<string | undefined> {
+  try {
+    const r = await $.process.run(argv, cwd ? { cwd, timeoutMs: 10_000 } : { timeoutMs: 10_000 })
+    return r.exitCode === 0 ? r.stdout.trim() : undefined
+  } catch {
+    return undefined
+  }
+}
 
-  const redraw = async ($: Engine) => {
-    const mine = ++drawSeq
-    const shown = paginate(buildNodes(entries, live, session, await $.clock.now()), page, PAGE_SIZE)
-    page = shown.page
-    // Animate the newest node only when it changed; every redraw reloads the drawing and would replay the fade.
-    const newest = shown.nodes.at(-1)
-    const key = newest ? `${newest.kind}|${newest.at}|${newest.title}` : ''
-    const next: View = {
-      header: summarize(entries, repo?.name ?? 'timeline', bad),
-      nodes: shown.nodes,
-      page: shown.page,
-      pages: shown.pages,
-      tz,
-      fade: key !== lastNewest,
+type Repo = { root: string; name: string; isGit: boolean; worktree?: string }
+
+// The repo a path belongs to; worktrees share their main checkout's root. A non-git path is its own identity.
+// One rev-parse call. Git older than 2.31 echoes the unknown --path-format flag, so a non-absolute line means "not git".
+async function identify($: Engine, path: string): Promise<Repo> {
+  const out = await run($, ['git', '-C', path, 'rev-parse', '--path-format=absolute', '--git-common-dir', '--show-toplevel'])
+  const [common, top] = out?.split('\n') ?? []
+  if (!common?.startsWith('/') || !top?.startsWith('/')) {
+    return { root: path, name: path.split('/').filter(Boolean).at(-1) ?? path, isGit: false }
+  }
+  const root = repoRoot(common)
+  const name = root.split('/').filter(Boolean).at(-1) ?? root
+  if (top === root) return { root, name, isGit: true }
+  return { root, name, isGit: true, worktree: top.startsWith(`${root}/`) ? top.slice(root.length + 1) : top }
+}
+
+type Store = {
+  dir: string
+  lastSeq: () => number
+  append: (entry: Entry) => Promise<string | undefined>
+  readAll: () => Promise<{ entries: Entry[]; bad: number }>
+}
+
+type Listed = { name: string; kind: string; mtimeMs: number; size: number }
+
+const PART_CHARS = 1_048_576 // start a new part file past 1 MiB of text; $.fs reads and writes cap at 4 MiB
+
+const seqOf = (entries: readonly Entry[]) => entries.reduce((max, e) => Math.max(max, Number(e.id.split('-').at(-1)) || 0), 0)
+
+// One repo's timeline folder. This session rewrites only its current part file (`<session>.jsonl`, then
+// `<session>-1.jsonl`, …). Every other file, this session's earlier parts included, is read and cached by mtime and size.
+// A part that can't be read or has unreadable lines is never rewritten: writing continues in a new part.
+async function openStore($: Engine, home: string, root: string, session: string): Promise<Store> {
+  const dir = `${home}/.claude/timelines/${folderName(root)}`
+  const partName = (n: number) => (n ? `${session}-${n}.jsonl` : `${session}.jsonl`)
+  const partIndex = (name: string) => {
+    if (name === `${session}.jsonl`) return 0
+    const m = name.match(/^(.+)-(\d+)\.jsonl$/)
+    return m && m[1] === session ? Number(m[2]) : -1
+  }
+  const cache = new Map<string, { mtimeMs: number; size: number; entries: Entry[]; bad: number }>()
+  let part = 0
+  let own: Entry[] = []
+  let saved = 0 // how many entries of `own` are on disk
+
+  const list = async (): Promise<readonly Listed[] | undefined> => {
+    try {
+      return await $.fs.list(dir)
+    } catch {
+      return undefined // no folder yet
     }
-    if (mine !== drawSeq) return // an older redraw that finishes late must not land last
-    lastNewest = key
-    // update retries on a version miss; by then a newer redraw may have started, so keep whatever is newer.
-    await update($, view, prev => (mine === drawSeq ? next : prev))
-    // Keep the live end in view: the engine owns the pane's scroll, and a long timeline starts at the top.
-    if (next.fade && next.page === 0) void $.ui.scroll({ in: PANE, to: 'end' }).catch(() => {})
   }
 
-  const reload = async ($: Engine) => {
-    if (!store) return
-    const all = await store.readAll()
-    entries = all.entries
-    bad = all.bad
-    await redraw($)
+  const parts = ((await list()) ?? []).filter(f => f.kind === 'file').map(f => partIndex(f.name)).filter(n => n >= 0)
+  if (parts.length) {
+    part = Math.max(...parts)
+    try {
+      const parsed = parseJsonl(await $.fs.read(`${dir}/${partName(part)}`))
+      if (parsed.bad) part += 1
+      else {
+        own = parsed.entries
+        saved = own.length
+      }
+    } catch {
+      part += 1 // over 4 MiB or unreadable: leave it alone
+    }
   }
 
-  const stamp = async ($: Engine, agentId?: string) => ({
-    id: `${session.slice(0, 8)}-${++seq}`,
-    at: new Date(await $.clock.now()).toISOString(),
-    session,
-    ...(branch ? { branch } : {}),
-    ...(repo?.worktree ? { worktree: repo.worktree } : {}),
-    ...(agentId ? { agentId } : {}),
+  const readAll = async () => {
+    const listed = await list()
+    if (!listed) return { entries: [...own], bad: 0 }
+    const current = partName(part)
+    for (const name of [...cache.keys()]) if (!listed.some(f => f.name === name)) cache.delete(name)
+    for (const file of listed) {
+      if (file.kind !== 'file' || !file.name.endsWith('.jsonl') || file.name === current) continue
+      const hit = cache.get(file.name)
+      if (hit && hit.mtimeMs === file.mtimeMs && hit.size === file.size) continue
+      try {
+        cache.set(file.name, { mtimeMs: file.mtimeMs, size: file.size, ...parseJsonl(await $.fs.read(`${dir}/${file.name}`)) })
+      } catch {
+        cache.delete(file.name)
+      }
+    }
+    const others = [...cache.values()]
+    return { entries: mergeEntries([own, ...others.map(c => c.entries)]), bad: others.reduce((n, c) => n + c.bad, 0) }
+  }
+
+  const write = async (entry: Entry): Promise<string | undefined> => {
+    own = [...own, entry]
+    let text = toJsonl(own)
+    if (text.length > PART_CHARS && saved > 0) {
+      // This part is full; what is saved stays there. Entries not yet on disk move to the next part.
+      part += 1
+      own = own.slice(saved)
+      saved = 0
+      text = toJsonl(own)
+    }
+    try {
+      await $.fs.write(`${dir}/${partName(part)}`, text)
+      saved = own.length
+      return undefined
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  // One write at a time: parallel subagents logging together must not let an older whole-file write land last.
+  let chain: Promise<unknown> = Promise.resolve()
+  const append = (entry: Entry): Promise<string | undefined> => {
+    const next = chain.then(() => write(entry))
+    chain = next
+    return next
+  }
+
+  // Highest id suffix across all of this session's parts, so a new id never repeats one.
+  const lastSeq = () =>
+    Math.max(seqOf(own), ...[...cache].filter(([name]) => partIndex(name) >= 0).map(([, c]) => seqOf(c.entries)))
+
+  await readAll()
+  return { dir, lastSeq, append, readAll }
+}
+
+// Shared by the hooks and the top-level helpers below: the loader lets $ reach only functions declared at the top of this file.
+const st = {
+  session: '',
+  home: '',
+  tz: 0,
+  repo: undefined as Repo | undefined,
+  store: undefined as Store | undefined,
+  branch: undefined as string | undefined,
+  seq: 0,
+  page: 0,
+  entries: [] as Entry[],
+  bad: 0,
+  activeTask: undefined as string | undefined,
+  hasAutoOpened: false,
+  hasWarnedWrite: false,
+  lastNewest: '',
+  drawSeq: 0,
+  live: {} as Record<string, LiveAgent>,
+}
+
+const redraw = async ($: Engine) => {
+  const mine = ++st.drawSeq
+  const shown = paginate(buildNodes(st.entries, st.live, st.session, await $.clock.now()), st.page, PAGE_SIZE)
+  st.page = shown.page
+  // Animate the newest node only when it changed; every redraw reloads the drawing and would replay the fade.
+  const newest = shown.nodes.at(-1)
+  const key = newest ? `${newest.kind}|${newest.at}|${newest.title}` : ''
+  const next: View = {
+    header: summarize(st.entries, st.repo?.name ?? 'timeline', st.bad),
+    nodes: shown.nodes,
+    page: shown.page,
+    pages: shown.pages,
+    tz: st.tz,
+    fade: key !== st.lastNewest,
+  }
+  if (mine !== st.drawSeq) return // an older redraw that finishes late must not land last
+  st.lastNewest = key
+  // update retries on a version miss; by then a newer redraw may have started, so keep whatever is newer.
+  await update($, view, prev => (mine === st.drawSeq ? next : prev))
+  // Keep the live end in view: the engine owns the pane's scroll, and a long timeline starts at the top.
+  if (next.fade && next.page === 0) void $.ui.scroll({ in: PANE, to: 'end' }).catch(() => {})
+}
+
+const reload = async ($: Engine) => {
+  if (!st.store) return
+  const all = await st.store.readAll()
+  st.entries = all.entries
+  st.bad = all.bad
+  await redraw($)
+}
+
+const stamp = async ($: Engine, agentId?: string) => ({
+  id: `${st.session.slice(0, 8)}-${++st.seq}`,
+  at: new Date(await $.clock.now()).toISOString(),
+  session: st.session,
+  ...(st.branch ? { branch: st.branch } : {}),
+  ...(st.repo?.worktree ? { worktree: st.repo.worktree } : {}),
+  ...(agentId ? { agentId } : {}),
+})
+
+const isShown = async ($: Engine) => (await $.ui.panes()).some(p => p.id === PANE && p.isShown && p.isPlaced)
+
+const record = async ($: Engine, entry: Entry) => {
+  if (!st.store) return 'timeline has no repo yet'
+  const error = await st.store.append(entry)
+  st.entries = mergeEntries([st.entries, [entry]])
+  if (error && !st.hasWarnedWrite) {
+    st.hasWarnedWrite = true
+    $.ui.toast(`timeline: can't write ${st.store.dir}: ${error}`, { timeoutMs: 10_000 })
+  }
+  if (entry.kind === 'work' && !entry.agentId && !st.hasAutoOpened) {
+    st.hasAutoOpened = true
+    // Skip when the pane is already open. panes() lists only open panes, so one the person closed reopens once after a reload.
+    if (!(await $.ui.panes()).some(p => p.id === PANE)) void $.ui.open({ id: PANE, title: 'Timeline' }).catch(() => {})
+  }
+  await redraw($)
+  return error
+}
+
+// Switch the timeline to the repo `path` is in. requireGit: ignore non-git folders (a `cd` into a scratch dir).
+const enterRepo = async ($: Engine, path: string, requireGit: boolean) => {
+  const found = await identify($, path)
+  if (requireGit && !found.isGit) return
+  const newBranch = found.isGit ? await run($, ['git', '-C', path, 'symbolic-ref', '--short', '-q', 'HEAD']) : undefined
+  if (st.repo?.root === found.root) {
+    st.repo = found
+    st.branch = newBranch ?? st.branch
+    return
+  }
+  if (st.store) {
+    await record($, { v: 1, ...(await stamp($)), kind: 'session', title: `session ${st.session.slice(0, 8)} left for ${found.name}`, event: 'close' })
+  }
+  st.repo = found
+  st.branch = newBranch
+  st.store = await openStore($, st.home, found.root, st.session)
+  st.seq = st.store.lastSeq()
+  st.entries = []
+  st.page = 0
+  st.activeTask = undefined
+  await record($, { v: 1, ...(await stamp($)), kind: 'session', title: `session ${st.session.slice(0, 8)} opened`, event: 'open' })
+  await reload($)
+}
+
+// /clear keeps the process but starts a new session id, with no session.start: follow it on the next prompt.
+const syncSession = async ($: Engine) => {
+  const id = await $.session.id()
+  if (!st.session || id === st.session || !st.repo) return
+  // Open first, then switch id, store and seq together: no log may be stamped with the new id into the old store.
+  const opened = await openStore($, st.home, st.repo.root, id)
+  st.session = id
+  st.store = opened
+  st.seq = opened.lastSeq()
+  st.hasAutoOpened = false
+  st.activeTask = undefined
+  await st.store.append({ v: 1, ...(await stamp($)), kind: 'session', title: `session ${st.session.slice(0, 8)} opened`, event: 'open' })
+  await reload($)
+}
+
+const here = () =>
+  st.repo ? (st.repo.worktree?.startsWith('/') ? st.repo.worktree : st.repo.worktree ? `${st.repo.root}/${st.repo.worktree}` : st.repo.root) : undefined
+
+const refreshBranch = async ($: Engine) => {
+  const dir = here()
+  if (dir) st.branch = (await run($, ['git', '-C', dir, 'symbolic-ref', '--short', '-q', 'HEAD'])) ?? st.branch
+}
+
+const recordFact = async ($: Engine, found: Found) =>
+  record($, {
+    v: 1,
+    ...(await stamp($)),
+    kind: 'fact',
+    title: found.title,
+    fact: found.fact,
+    ...(st.activeTask ? { attachTo: st.activeTask } : {}),
   })
 
-  const isShown = async ($: Engine) => (await $.ui.panes()).some(p => p.id === PANE && p.isShown && p.isPlaced)
-
-  const record = async ($: Engine, entry: Entry) => {
-    if (!store) return 'timeline has no repo yet'
-    const error = await store.append(entry)
-    entries = mergeEntries([entries, [entry]])
-    if (error && !hasWarnedWrite) {
-      hasWarnedWrite = true
-      $.ui.toast(`timeline: can't write ${store.dir}: ${error}`, { timeoutMs: 10_000 })
-    }
-    if (entry.kind === 'work' && !entry.agentId && !hasAutoOpened) {
-      hasAutoOpened = true
-      // Skip when the pane is already open. panes() lists only open panes, so one the person closed reopens once after a reload.
-      if (!(await $.ui.panes()).some(p => p.id === PANE)) void $.ui.open({ id: PANE, title: 'Timeline' }).catch(() => {})
-    }
-    await redraw($)
-    return error
-  }
-
-  // Switch the timeline to the repo `path` is in. requireGit: ignore non-git folders (a `cd` into a scratch dir).
-  const enterRepo = async ($: Engine, path: string, requireGit: boolean) => {
-    const found = await identify($, path)
-    if (requireGit && !found.isGit) return
-    const newBranch = found.isGit ? await run($, ['git', '-C', path, 'symbolic-ref', '--short', '-q', 'HEAD']) : undefined
-    if (repo?.root === found.root) {
-      repo = found
-      branch = newBranch ?? branch
-      return
-    }
-    if (store) {
-      await record($, { v: 1, ...(await stamp($)), kind: 'session', title: `session ${session.slice(0, 8)} left for ${found.name}`, event: 'close' })
-    }
-    repo = found
-    branch = newBranch
-    store = await openStore($, home, found.root, session)
-    seq = store.lastSeq()
-    entries = []
-    page = 0
-    activeTask = undefined
-    await record($, { v: 1, ...(await stamp($)), kind: 'session', title: `session ${session.slice(0, 8)} opened`, event: 'open' })
-    await reload($)
-  }
-
-  // /clear keeps the process but starts a new session id, with no session.start: follow it on the next prompt.
-  const syncSession = async ($: Engine) => {
-    const id = await $.session.id()
-    if (!session || id === session || !repo) return
-    // Open first, then switch id, store and seq together: no log may be stamped with the new id into the old store.
-    const opened = await openStore($, home, repo.root, id)
-    session = id
-    store = opened
-    seq = opened.lastSeq()
-    hasAutoOpened = false
-    activeTask = undefined
-    await store.append({ v: 1, ...(await stamp($)), kind: 'session', title: `session ${session.slice(0, 8)} opened`, event: 'open' })
-    await reload($)
-  }
+export const register: Register = on => {
+  let useSection = true
+  let ready: Promise<void> = Promise.resolve()
 
   on('session.start', async ($, e, next) => {
-    host = $
-    session = await $.session.id()
-    home = (await $.env.get('HOME')) ?? ''
-    tz = tzMinutes(await run($, ['date', '+%z']))
+    st.session = await $.session.id()
+    st.home = (await $.env.get('HOME')) ?? ''
+    st.tz = tzMinutes(await run($, ['date', '+%z']))
     try {
       useSection = (await $.prompt.compose()).sections.some(s => s.id === 'env_info_simple')
     } catch {
@@ -175,7 +326,7 @@ export const register: Register = on => {
     ready = $.session.cwd().then(cwd => enterRepo($, cwd, false)).catch(() => {})
     $.clock.every(REFRESH_MS, () => {
       void (async () => {
-        if (host && (await isShown(host))) await reload(host)
+        if (await isShown($)) await reload($)
       })().catch(() => {})
     })
     return next(e)
@@ -184,13 +335,13 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     await ready
     // append, not record: the session.end chain shares one short wall-clock bound, so no redraw here.
-    if (store) await store.append({ v: 1, ...(await stamp($)), kind: 'session', title: `session ${session.slice(0, 8)} closed`, event: 'close' })
+    if (st.store) await st.store.append({ v: 1, ...(await stamp($)), kind: 'session', title: `session ${st.session.slice(0, 8)} closed`, event: 'close' })
     return next(e)
   })
 
   on('prompt.submit', async ($, e, next) => {
     // Only a /clear changes the id; otherwise the first prompt must not wait for the initial timeline read.
-    if ((await $.session.id()) !== session) {
+    if ((await $.session.id()) !== st.session) {
       await ready
       await syncSession($)
     }
@@ -207,8 +358,8 @@ export const register: Register = on => {
     // The talk side is the user's asks and decisions; a subagent that also got the main note must not write there.
     if (entry.kind === 'talk' && entry.agentId) return { result: 'logged' }
     if (entry.kind === 'work' && !entry.agentId) {
-      if (entry.status === 'active') activeTask = entry.task
-      else if (activeTask === entry.task) activeTask = undefined
+      if (entry.status === 'active') st.activeTask = entry.task
+      else if (st.activeTask === entry.task) st.activeTask = undefined
     }
     const error = await record($, entry)
     return { result: error ? `logged, not saved: ${error}` : 'logged' }
@@ -239,24 +390,6 @@ export const register: Register = on => {
   let lastSnap: unknown
   let bookkeeping: Promise<void> = Promise.resolve() // Bash bookkeeping runs one call at a time, in call order
 
-  const here = () =>
-    repo ? (repo.worktree?.startsWith('/') ? repo.worktree : repo.worktree ? `${repo.root}/${repo.worktree}` : repo.root) : undefined
-
-  const refreshBranch = async ($: Engine) => {
-    const dir = here()
-    if (dir) branch = (await run($, ['git', '-C', dir, 'symbolic-ref', '--short', '-q', 'HEAD'])) ?? branch
-  }
-
-  const recordFact = async ($: Engine, found: Found) =>
-    record($, {
-      v: 1,
-      ...(await stamp($)),
-      kind: 'fact',
-      title: found.title,
-      fact: found.fact,
-      ...(activeTask ? { attachTo: activeTask } : {}),
-    })
-
   // Bash: commit/push/PR facts from any loop (subagents make most commits in orchestration work); the main loop also
   // follows `cd` into another repo. The bookkeeping runs after the result is returned, one call at a time, so the model never waits on it.
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
@@ -270,11 +403,11 @@ export const register: Register = on => {
       await ready
       const target = lastCd(command, base)
       if (!e.agentId && target) await enterRepo($, target, true)
-      if (!repo) return
+      if (!st.repo) return
       // A subagent working in another repo: its facts belong to that repo's timeline, not this one.
       if (e.agentId && target) {
         const there = await identify($, target)
-        if (there.isGit && there.root !== repo.root) return
+        if (there.isGit && there.root !== st.repo.root) return
       }
       if (/\bgit\b/.test(command)) await refreshBranch($)
       // A failed call can still have committed or pushed (`git commit && git push && gh …` failing late). PR and merge
@@ -289,7 +422,7 @@ export const register: Register = on => {
 
   // A subagent's own tool calls feed its live card (`now:` and the tool count), not the file.
   on('tool.call', async ($, e, next) => {
-    const agent = e.agentId ? live[e.agentId] : undefined
+    const agent = e.agentId ? st.live[e.agentId] : undefined
     if (agent && e.tool !== TOOL) {
       agent.tools += 1
       agent.now = `${e.tool} ${clip(mainArg(e as unknown as Record<string, unknown>), 40) ?? ''}`.trim()
@@ -304,7 +437,7 @@ export const register: Register = on => {
     const result = await next(!e.fork && isModelCall ? { ...e, prompt: `${e.prompt}${AGENT_NOTE}` } : e)
     if (result.deny !== undefined || !result.agentId) return result
     await ready
-    live[result.agentId] = { tools: 0, startedAt: await $.clock.now() }
+    st.live[result.agentId] = { tools: 0, startedAt: await $.clock.now() }
     const prompt = clip(e.prompt, 2000)
     await record($, {
       v: 1,
@@ -319,7 +452,7 @@ export const register: Register = on => {
         isPinned: !e.fork && (!!e.model || result.model !== e.parentModel), // set on the call or by the agent's own definition; a fork inherits
         isBackground: e.background,
         ...(e.parentAgentId ? { parentAgentId: e.parentAgentId } : {}),
-        ...(activeTask ? { parentTask: activeTask } : {}),
+        ...(st.activeTask ? { parentTask: st.activeTask } : {}),
         ...(prompt ? { prompt } : {}),
       },
     })
@@ -332,9 +465,9 @@ export const register: Register = on => {
     if (!e.agentId) return result
     await ready
     // Engine forks and other plugins' agents carry agent ids too: only end agents this timeline started.
-    if (!(e.agentId in live) && !entries.some(x => x.kind === 'agent' && x.agent?.id === e.agentId)) return result
-    const agent = live[e.agentId]
-    delete live[e.agentId]
+    if (!(e.agentId in st.live) && !st.entries.some(x => x.kind === 'agent' && x.agent?.id === e.agentId)) return result
+    const agent = st.live[e.agentId]
+    delete st.live[e.agentId]
     const summary = clip(e.answer.split('\n').find(line => line.trim()) ?? '', 160)
     const u = e.usage
     // Cached input counts too: with prompt caching, uncached input alone is a small fraction of what the agent read.
@@ -365,7 +498,7 @@ export const register: Register = on => {
     await ready
     const dir = (e.value as { dir?: unknown } | null | undefined)?.dir
     const isThisRepo =
-      !!repo && typeof dir === 'string' && (dir === here() || dir === repo.root || dir.startsWith(`${repo.root}/`))
+      !!st.repo && typeof dir === 'string' && (dir === here() || dir === st.repo.root || dir.startsWith(`${st.repo.root}/`))
     const found = isThisRepo ? ciFact(e.previous ?? lastSnap, e.value) : undefined
     lastSnap = e.value
     if (found) await recordFact($, found)
@@ -379,7 +512,7 @@ export const register: Register = on => {
     if (!v) return <Text dimColor>Timeline loading…</Text>
 
     const turn = (delta: number) => async () => {
-      page = Math.max(0, page + delta)
+      st.page = Math.max(0, st.page + delta)
       await redraw($)
     }
     const head = (
