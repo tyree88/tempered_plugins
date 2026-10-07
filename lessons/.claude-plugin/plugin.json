@@ -1,0 +1,6 @@
+{
+  "name": "lessons",
+  "version": "0.1.0",
+  "description": "Spots wins and pitfalls in your prompts and has Claude run your win-logger / pitfall-logger skills; session tally in the status line.",
+  "types": "./types/index.d.ts"
+}
