@@ -30,6 +30,14 @@ def main() -> int:
         print("manifest name must be platform-orchestrator", file=sys.stderr)
         return 1
 
+    claude_manifest = root / ".claude-plugin" / "plugin.json"
+    if not claude_manifest.exists():
+        print(f"missing manifest: {claude_manifest}", file=sys.stderr)
+        return 1
+    if json.loads(claude_manifest.read_text(encoding="utf-8")).get("name") != "multi-harness":
+        print("Claude Code manifest name must be multi-harness", file=sys.stderr)
+        return 1
+
     missing = sorted(
         skill for skill in REQUIRED_SKILLS if not (root / "skills" / skill / "SKILL.md").exists()
     )

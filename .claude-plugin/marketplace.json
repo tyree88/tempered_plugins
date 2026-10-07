@@ -18,6 +18,11 @@
       "name": "timeline",
       "source": "./timeline",
       "description": "Vertical orchestration timeline: talk on the left, work milestones with progress and live subagent cards on the right, per repo across sessions."
+    },
+    {
+      "name": "multi-harness",
+      "source": "./multi-harness",
+      "description": "6 skills to plan large work in waves and track it to completion: wave planning, agent patterns, branch and PR closeout, tracker sync, QA evidence, safety review."
     }
   ]
 }

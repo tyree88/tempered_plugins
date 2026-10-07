@@ -1,8 +1,8 @@
 # Tempered Plugins
 
-This repository holds plugins from Tempered Works for AI coding tools. Three plugins are for Claude Code. One plugin is for Codex.
+This repository holds plugins from Tempered Works for AI coding tools. Four plugins are for Claude Code. One of them, multi-harness, is also a Codex plugin.
 
-A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The three Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
+A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. Three of the Claude Code plugins here are mods. multi-harness is a skills plugin. They run inside Claude Code, in the terminal and in the desktop Code tab.
 
 ## What is in this repository
 
@@ -11,8 +11,8 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 | `ship-state/` | Claude Code | Shows the git, pull request, CI and deploy state of the current repo in one line above the prompt. |
 | `timeline/` | Claude Code | Shows a vertical timeline of the work in a side pane: what you asked, what Claude did, and what each subagent is doing. |
 | `limit-resume/` | Claude Code | Shows your usage limits and continues a turn after a rate limit resets. |
-| `multi-harness/` | Codex | Gives Codex 6 skills to plan large work in waves and to track it to completion. |
-| `.claude-plugin/marketplace.json` | Claude Code | Lists the 3 Claude Code plugins so that Claude Code can install them from this repository. |
+| `multi-harness/` | Claude Code and Codex | Gives Claude Code or Codex 6 skills to plan large work in waves and to track it to completion. |
+| `.claude-plugin/marketplace.json` | Claude Code | Lists the 4 Claude Code plugins so that Claude Code can install them from this repository. |
 
 ## Why these plugins exist
 
@@ -22,7 +22,7 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 
 **limit-resume.** When a session hits a usage limit, the work stops until you type "try again". If you are away, the session stays idle after the limit resets. limit-resume continues the work at the reset time. It also shows your usage before you reach the limit.
 
-**multi-harness.** Large product work needs a plan, branch and pull request gates, tracker updates, QA evidence, and a safe closeout. multi-harness gives Codex a repeatable method for these steps. The method is the same for every product.
+**multi-harness.** Large product work needs a plan, branch and pull request gates, tracker updates, QA evidence, and a safe closeout. multi-harness gives Claude Code and Codex a repeatable method for these steps. The method is the same for every product.
 
 ## Requirements
 
@@ -120,10 +120,13 @@ Claude Code has a built-in setting, `autoContinueAtUsageLimit`, that also contin
 
 ## How to use multi-harness
 
-multi-harness is a Codex plugin. Its manifest is `multi-harness/.codex-plugin/plugin.json`, and its plugin name is `platform-orchestrator`. It is not in the Claude Code marketplace file.
+multi-harness has 2 manifests that share one `skills/` folder:
 
-1. Install the `multi-harness` folder with the Codex plugin installer.
-2. Ask Codex to use Platform Orchestrator on a backlog. For example: "Use Platform Orchestrator to turn this backlog into shippable waves, branch and PR gates, tracker updates, and verification evidence."
+- Claude Code: `multi-harness/.claude-plugin/plugin.json`, plugin name `multi-harness`. It is in the marketplace file. Claude Code calls the skills `multi-harness:<skill>`, for example `multi-harness:platform-wave-orchestrator`.
+- Codex: `multi-harness/.codex-plugin/plugin.json`, plugin name `platform-orchestrator`.
+
+1. Install the plugin. In Claude Code, install `multi-harness` from the marketplace, or add the `multi-harness` folder to `CLAUDE_CODE_PLUGIN_DIRS`. In Codex, install the `multi-harness` folder with the Codex plugin installer.
+2. Ask Claude Code or Codex to use Platform Orchestrator on a backlog. For example: "Use Platform Orchestrator to turn this backlog into shippable waves, branch and PR gates, tracker updates, and verification evidence."
 3. Use the templates in `multi-harness/assets/templates/` for wave plans, tracker updates, QA evidence, and pull request closeout.
 
 The 6 skills are:
