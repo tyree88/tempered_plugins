@@ -1,0 +1,6 @@
+{
+  "name": "followups",
+  "version": "0.1.0",
+  "description": "After each answer, 4 next-prompt options above the prompt box (keys 1-4); picking one fills the box. Replaces the single grey suggestion.",
+  "types": "./types/index.d.ts"
+}
