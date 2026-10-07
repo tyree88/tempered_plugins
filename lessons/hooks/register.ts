@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface as Engine, Register } from 'claude-code'
+import type { EngineInterface as Engine, PromptOrigin, Register } from 'claude-code'
 
 import type { Tally } from '../types'
 import { countDrafts, detect, isYes, type Drafts, type Kind } from './detect'
@@ -59,12 +59,26 @@ async function resolve($: Engine, kind: Kind): Promise<Source> {
   if (cmd) return { ref: cmd.name, how: 'loaded' }
   const path = await findFile($, name)
   if (path) return { ref: path, how: 'file' }
-  $.ui.toast(`lessons: ${name} skill not found`)
+  await warnMissing($, name)
   return null
 }
 
+// Once per skill per day, never while off: an install without the skills would toast at every start and reload.
+async function warnMissing($: Engine, name: string) {
+  if (!(await isOn($))) return
+  const key = `warned:${name}`
+  const today = new Date(await $.clock.now()).toISOString().slice(0, 10)
+  if ((await $.store.get(key)) === today) return
+  await $.store.set(key, today)
+  $.ui.toast(`lessons: ${name} skill not found (/lessons status)`)
+}
+
 async function resolveAll($: Engine) {
-  s.skills = { win: await resolve($, 'win'), pitfall: await resolve($, 'pitfall') }
+  try {
+    s.skills = { win: await resolve($, 'win'), pitfall: await resolve($, 'pitfall') }
+  } catch {
+    // a refused command.list or env read leaves skills unresolved; /lessons status says missing
+  }
 }
 
 const note = (kind: Kind, reason: string, src: NonNullable<Source>) =>
@@ -73,6 +87,12 @@ const note = (kind: Kind, reason: string, src: NonNullable<Source>) =>
   ': it drafts the entry and asks "Log it? y/n". Never write without a yes.'
 
 const where = (src: Source) => (!src ? 'missing' : src.how === 'loaded' ? `loaded as ${src.ref}` : `file ${src.ref}`)
+
+// The person's own words: the terminal, Remote Control, the owner's Slack ping, or the desktop app (an SDK host).
+async function isPerson($: Engine, origin: PromptOrigin) {
+  return origin.kind === 'composer' || origin.kind === 'bridge' || origin.kind === 'slack-ping' ||
+    (origin.kind === 'sdk' && (await $.session.surfaces()).includes('desktop'))
+}
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
@@ -96,9 +116,9 @@ export const register: Register = on => {
     }
   })
 
-  // Only what the person types counts: the composer, or Remote Control.
+  // Only what the person types counts: the terminal, Remote Control, Slack, or the desktop app.
   on('prompt.submit', async ($, e, next) => {
-    if (e.origin.kind !== 'composer' && e.origin.kind !== 'bridge') return next(e)
+    if (!(await isPerson($, e.origin))) return next(e)
     s.promptIndex += 1
 
     if ((s.pending.win || s.pending.pitfall) && isYes(e.text)) {
@@ -118,7 +138,9 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (!e.agentId && e.reason === 'answer') s.pending = countDrafts(e.answer)
+    if (e.agentId || e.reason !== 'answer') return result
+    const d = countDrafts(e.answer)
+    if (d.win || d.pitfall) s.pending = d // a notification or peer turn in between must not wipe drafts awaiting y/n
     return result
   })
 
