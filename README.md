@@ -1,8 +1,8 @@
 # Tempered Plugins
 
-This repository holds plugins from Tempered Works for AI coding tools. Three plugins are for Claude Code. One plugin is for Codex.
+This repository holds plugins from Tempered Works for AI coding tools. Four plugins are for Claude Code. One plugin is for Codex.
 
-A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The three Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
+A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The four Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
 
 ## What is in this repository
 
@@ -11,8 +11,9 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 | `ship-state/` | Claude Code | Shows the git, pull request, CI and deploy state of the current repo in one line above the prompt. |
 | `timeline/` | Claude Code | Shows a vertical timeline of the work in a side pane: what you asked, what Claude did, and what each subagent is doing. |
 | `limit-resume/` | Claude Code | Shows your usage limits and continues a turn after a rate limit resets. |
+| `followups/` | Claude Code | Shows 4 options for your next prompt above the prompt box after each answer. You press 1 to 4 to put one in the box. |
 | `multi-harness/` | Codex | Gives Codex 6 skills to plan large work in waves and to track it to completion. |
-| `.claude-plugin/marketplace.json` | Claude Code | Lists the 3 Claude Code plugins so that Claude Code can install them from this repository. |
+| `.claude-plugin/marketplace.json` | Claude Code | Lists the 4 Claude Code plugins so that Claude Code can install them from this repository. |
 
 ## Why these plugins exist
 
@@ -22,11 +23,13 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 
 **limit-resume.** When a session hits a usage limit, the work stops until you type "try again". If you are away, the session stays idle after the limit resets. limit-resume continues the work at the reset time. It also shows your usage before you reach the limit.
 
+**followups.** Claude Code shows one grey suggestion for your next prompt. That suggestion is often the wrong one. followups shows 4 options in 4 directions: continue the plan, verify the work, take the alternative path, and wrap up. These options cover the usual next moves. You choose one and edit it. followups sends nothing until you press Enter.
+
 **multi-harness.** Large product work needs a plan, branch and pull request gates, tracker updates, QA evidence, and a safe closeout. multi-harness gives Codex a repeatable method for these steps. The method is the same for every product.
 
 ## Requirements
 
-- Claude Code with support for function-hook plugins. We built and tested the plugins on Claude Code 2.1.286 on macOS.
+- Claude Code with support for function-hook plugins. We tested the plugins on Claude Code 2.1.288 on macOS. All Claude Code plugins pass `claude plugin validate`.
 - `git` 2.31 or newer.
 - The GitHub CLI `gh`, signed in. ship-state and timeline use it for pull request, CI and deploy data. Without `gh`, they show only local git data.
 - Production deploy data comes from GitHub deployment records. Vercel and most hosting services create these records.
@@ -42,6 +45,7 @@ Use one of these 2 methods.
 /plugin install ship-state@tempered-plugins
 /plugin install timeline@tempered-plugins
 /plugin install limit-resume@tempered-plugins
+/plugin install followups@tempered-plugins
 ```
 
 Install only the plugins that you want.
@@ -49,7 +53,7 @@ Install only the plugins that you want.
 **Method 2: load the folders directly.** Clone this repository. Then add the plugin folders to the `env` block of `~/.claude/settings.json`. Separate the folders with `:`.
 
 ```json
-{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/tempered_plugins/ship-state:/path/to/tempered_plugins/timeline" } }
+{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/tempered_plugins/ship-state:/path/to/tempered_plugins/timeline:/path/to/tempered_plugins/followups" } }
 ```
 
 New sessions load the plugins. Sessions that are already open do not.
@@ -76,6 +80,8 @@ app ⎇ feat/waitlist  ·  3 dirty  ·  ↑2 ↓0  ·  PR #312  ·  CI ⏳ 4/5  
 3. After a push or a merge, wait for the toast. ship-state shows "CI ✓", "CI ✗" with the failed check names, or "Live on prod".
 
 ship-state follows Claude when Claude changes to another repo or worktree. It reads local git data every 20 seconds. It reads GitHub data every 5 minutes. After a push or merge, it reads GitHub data every 20 seconds for 10 minutes.
+
+The band of ship-state stacks with the bands of other plugins, such as followups.
 
 ## How to use timeline
 
@@ -104,6 +110,33 @@ Usage cost: each logged entry costs approximately 40 to 80 output tokens. The in
 Privacy: the timeline files contain Claude's one-line summaries, the first 2000 characters of each subagent prompt, and commit subjects. The files stay on your computer.
 
 Status: timeline is built and reviewed. Live testing is in progress.
+
+## How to use followups
+
+followups needs no action. It starts with each session.
+
+1. Wait for Claude to finish an answer. A few seconds later, 4 options appear in the band above the prompt box. Each option has its own row: `1: …` to `4: …`.
+2. Read the options. Each option goes in a different direction:
+   - Continue the plan.
+   - Verify or test the work.
+   - Take the alternative path, or ask an open question.
+   - Wrap up or commit.
+3. Press `1` to `4` when the prompt box is empty. You can also click an option. The text of the option goes into the prompt box.
+4. Edit the text, or press Enter to send it. followups never sends anything by itself.
+5. To ignore the options, type your own message.
+6. To turn the plugin off or on, type `/followups off` or `/followups on`. Type `/followups status` to see the current setting and the last error, for example a refused model call.
+
+When the band shows, a digit that you type in an empty prompt box picks an option. To start a message with a digit, type a space first.
+
+The band hides while the prompt box has text, while a turn runs, and while a survey uses the band. It comes back when the prompt box is empty.
+
+followups hides the built-in grey suggestion of Claude Code, but only after its own band has drawn once. In a surface without the band, the built-in suggestion stays.
+
+followups makes no options for subagent turns, interrupted turns, errors, and empty answers. If you send a prompt before Haiku answers, followups drops the old reply. After `/clear` or a resume, followups removes the old options.
+
+Usage cost: followups makes one Haiku call for each answered turn. A call costs approximately 2,000 input tokens and 150 output tokens. followups adds nothing to the context of the main model.
+
+Privacy: the first 1,500 characters of your last prompt and the last 4,000 characters of the answer go to Haiku. The call uses the API client of Claude Code.
 
 ## How to use limit-resume
 
@@ -146,8 +179,11 @@ Each Claude Code plugin has checks for its logic. Node 23 or newer runs the `.ts
 ```
 node limit-resume/check.ts
 node ship-state/check.ts
+node followups/checks/ask.check.ts
 bash timeline/checks/run.sh
 ```
+
+To run the behavior test of followups, run `claude plugin test followups`. It runs 8 cases on the terminal and desktop surfaces.
 
 To type-check timeline, do these 2 steps:
 
