@@ -1,5 +1,5 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { CommandInfo, On, PromptOrigin } from 'claude-code'
+import type { CommandInfo, On, PromptOrigin, RenderSurface } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
 const SKILLS: CommandInfo[] = [
@@ -8,8 +8,8 @@ const SKILLS: CommandInfo[] = [
 ]
 const DRAFT = '🌱 Win draft — NEW\nShipped the band in one pass.\n\nLog it? y/n'
 
-// The engine beneath the plugin: these commands loaded, an empty home folder, a store and clock in memory.
-const engine = (on: On, commands = SKILLS) => {
+// The engine beneath the plugin: these commands loaded, these surfaces attached, an empty home folder, a store and clock in memory.
+const engine = (on: On, commands = SKILLS, surfaces: RenderSurface[] = ['terminal']) => {
   const reached: (readonly string[] | undefined)[] = [] // each prompt's context at the bottom of prompt.submit
   const status: (string | undefined)[] = []
   const toasts: string[] = []
@@ -19,7 +19,7 @@ const engine = (on: On, commands = SKILLS) => {
   on('command.register', async ($, e) => ({ value: { command: e.name } }))
   on('command.list', async () => ({ value: commands }))
   on('fs.list', async () => ({ value: [] }))
-  on('session.surfaces', async () => ({ value: ['terminal'] }))
+  on('session.surfaces', async () => ({ value: surfaces }))
   on('ui.status', async ($, e) => (status.push(e.text), { value: undefined }))
   on('ui.toast', async ($, e) => (toasts.push(e.text), { value: undefined }))
   on('session.start', async ($, e) => ({ cwd: e.cwd }))
@@ -101,3 +101,15 @@ test('missing skills: no nudge, one toast', async ($, on) => {
   expect(lessonsNote(reached[0])).toBeUndefined()
   expect(toasts).toContain('lessons: pitfall-logger skill not found (/lessons status)')
 })
+
+// The desktop app is an SDK host: its prompts are the person's, a bare -p run's are not.
+for (const [surface, nudged] of [['desktop', true], ['terminal', false]] as const) {
+  test(`an sdk prompt with ${surface} attached ${nudged ? 'carries the' : 'gets no'} nudge`, async ($, on) => {
+    const { reached, clock } = engine(on, SKILLS, [surface])
+    await start($, clock)
+    await say($, 'I already told you no bullets', { kind: 'sdk' })
+    const note = lessonsNote(reached[0])
+    if (nudged) expect(note).toStartWith('[lessons] pitfall signal (frustration)')
+    else expect(note).toBeUndefined()
+  })
+}
