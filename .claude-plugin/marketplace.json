@@ -23,6 +23,11 @@
       "name": "followups",
       "source": "./followups",
       "description": "After each answer, 4 next-prompt options above the prompt box (keys 1-4); picking one fills the box. Replaces the single grey suggestion."
+    },
+    {
+      "name": "lessons",
+      "source": "./lessons",
+      "description": "Spots wins and pitfalls in your prompts and has Claude run your win-logger / pitfall-logger skills; session tally in the status line."
     }
   ]
 }

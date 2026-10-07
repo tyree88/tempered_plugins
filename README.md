@@ -1,8 +1,8 @@
 # Tempered Plugins
 
-This repository holds plugins from Tempered Works for AI coding tools. Four plugins are for Claude Code. One plugin is for Codex.
+This repository holds plugins from Tempered Works for AI coding tools. Five plugins are for Claude Code. One plugin is for Codex.
 
-A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The four Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
+A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The five Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
 
 ## What is in this repository
 
@@ -12,8 +12,9 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 | `timeline/` | Claude Code | Shows a vertical timeline of the work in a side pane: what you asked, what Claude did, and what each subagent is doing. |
 | `limit-resume/` | Claude Code | Shows your usage limits and continues a turn after a rate limit resets. |
 | `followups/` | Claude Code | Shows 4 options for your next prompt above the prompt box after each answer. You press 1 to 4 to put one in the box. |
+| `lessons/` | Claude Code | Finds wins and pitfalls in your prompts. It then asks Claude to run your own `win-logger` and `pitfall-logger` skills. The status line shows how many entries you logged. |
 | `multi-harness/` | Codex | Gives Codex 6 skills to plan large work in waves and to track it to completion. |
-| `.claude-plugin/marketplace.json` | Claude Code | Lists the 4 Claude Code plugins so that Claude Code can install them from this repository. |
+| `.claude-plugin/marketplace.json` | Claude Code | Lists the 5 Claude Code plugins so that Claude Code can install them from this repository. |
 
 ## Why these plugins exist
 
@@ -24,6 +25,8 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 **limit-resume.** When a session hits a usage limit, the work stops until you type "try again". If you are away, the session stays idle after the limit resets. limit-resume continues the work at the reset time. It also shows your usage before you reach the limit.
 
 **followups.** Claude Code shows one grey suggestion for your next prompt. That suggestion is often the wrong one. followups shows 4 options in 4 directions: continue the plan, verify the work, take the alternative path, and wrap up. These options cover the usual next moves. You choose one and edit it. followups sends nothing until you press Enter.
+
+**lessons.** The same mistakes happen again, and good patterns get lost. A skill that logs them is useful, but it often does not run at the right moment. lessons makes the skill run. It reads your prompts for praise, frustration, and repeated requests. When it finds one, it tells Claude to run the matching skill after Claude finishes your request. The skill always asks "Log it? y/n" before it writes. You stay in control.
 
 **multi-harness.** Large product work needs a plan, branch and pull request gates, tracker updates, QA evidence, and a safe closeout. multi-harness gives Codex a repeatable method for these steps. The method is the same for every product.
 
@@ -46,6 +49,7 @@ Use one of these 2 methods.
 /plugin install timeline@tempered-plugins
 /plugin install limit-resume@tempered-plugins
 /plugin install followups@tempered-plugins
+/plugin install lessons@tempered-plugins
 ```
 
 Install only the plugins that you want.
@@ -53,7 +57,7 @@ Install only the plugins that you want.
 **Method 2: load the folders directly.** Clone this repository. Then add the plugin folders to the `env` block of `~/.claude/settings.json`. Separate the folders with `:`.
 
 ```json
-{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/tempered_plugins/ship-state:/path/to/tempered_plugins/timeline:/path/to/tempered_plugins/followups" } }
+{ "env": { "CLAUDE_CODE_PLUGIN_DIRS": "/path/to/tempered_plugins/ship-state:/path/to/tempered_plugins/timeline:/path/to/tempered_plugins/followups:/path/to/tempered_plugins/lessons" } }
 ```
 
 New sessions load the plugins. Sessions that are already open do not.
@@ -138,6 +142,38 @@ Usage cost: followups makes one Haiku call for each answered turn. A call costs 
 
 Privacy: the first 1,500 characters of your last prompt and the last 4,000 characters of the answer go to Haiku. The call uses the API client of Claude Code.
 
+## How to use lessons
+
+lessons needs 2 skills of your own. Name them `win-logger` and `pitfall-logger`. This repository does not include them. The skills decide where an entry goes, for example a Notion database. Each skill always asks "Log it? y/n" before it writes.
+
+1. Add the 2 skills to Claude Code. Any skills with these names work.
+2. Work as usual. lessons watches only the prompts that you send yourself: in the terminal, in Remote Control, in your own Slack ping, and in the Claude desktop app. It ignores prompts from plugins, notifications, other sessions, and subagents.
+3. Send a prompt that shows a win or a pitfall. The table below lists the signals.
+4. Claude finishes your request first. Then Claude runs the matching skill. lessons adds a short note to your prompt to cause this. You do not see the note.
+5. Read the draft that the skill shows. Answer `y` to log it. Answer `n` to skip it.
+6. Look at the status line. `🌱 2 · ⚠ 1` means 2 wins and 1 pitfall are logged in this session. lessons counts a row when you answer `y` to a draft. The count resets after `/clear` or a resume.
+7. To turn the plugin off or on, type `/lessons off` or `/lessons on`. Type `/lessons status` to see the setting, the counts, and where each skill was found.
+
+| Kind | Signals |
+|---|---|
+| Win | Praise, for example "perfect", "nailed it", "love this", "this is great", "exactly what I wanted". Or an ask: "log this win", "log this as a win", "add this to learnings", "remember this worked". |
+| Pitfall | Frustration, for example "I already told you", "no, I said", "still wrong", "still failing", "this is the third time", "why did you change…", "not what I asked". Or shouting: several words in all capitals. Or the same request sent again: it has high word overlap with one of your last 10 prompts. Or an ask: "log this", "add this to pitfalls", "remember this lesson". |
+
+lessons avoids common false signals. These prompts do not trigger it: "exactly 3 retries", "pixel perfect", "log this error to sentry", "why did you choose zod?", "the second time I click it throws". File names such as README or CHANGELOG do not trigger it. HTTP method names do not trigger it.
+
+lessons adds at most 1 note of each kind for each 5 prompts.
+
+lessons looks for the skills in 2 places:
+
+- The skills loaded in the session. The name can also be `anthropic-skills:<name>`.
+- On macOS, the synced-skills folder of the Claude desktop app.
+
+If a skill is missing, lessons shows a toast at most once a day. `/lessons status` shows "missing" for that skill.
+
+Usage cost: lessons makes no model calls. A note costs approximately 40 tokens. lessons adds a note only to a prompt that matches.
+
+Privacy: your last 10 prompts stay in memory only, for the repeat check. lessons does not write them to disk.
+
 ## How to use limit-resume
 
 limit-resume needs no action. It starts with each session.
@@ -180,10 +216,13 @@ Each Claude Code plugin has checks for its logic. Node 23 or newer runs the `.ts
 node limit-resume/check.ts
 node ship-state/check.ts
 node followups/checks/ask.check.ts
+node lessons/checks/detect.check.ts
 bash timeline/checks/run.sh
 ```
 
 To run the behavior test of followups, run `claude plugin test followups`. It runs 8 cases on the terminal and desktop surfaces.
+
+To run the behavior test of lessons, run `claude plugin test lessons`. It runs 9 cases.
 
 To type-check timeline, do these 2 steps:
 
