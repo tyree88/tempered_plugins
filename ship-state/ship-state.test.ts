@@ -81,6 +81,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await clock.settle()
     const button = await ui.find({ key: 'act' })
     expect(button?.props.label).toBe('push ↑2')
+    expect(button?.props.hotkey).toBeUndefined()
     await ui.press({ key: 'act' })
     await clock.settle()
     expect(submitted).toEqual([COMMIT_PROMPT, PUSH_PROMPT])

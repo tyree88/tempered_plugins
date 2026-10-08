@@ -186,7 +186,7 @@ export const register: Register = on => {
               {'  ·  '}
             </Text>
           )}
-          {act && <Button key="act" hotkey="0" plain dimColor label={act.label} onPress={() => void press($, act.prompt)} />}
+          {act && <Button key="act" hotkey={act.hotkey} plain dimColor label={act.label} onPress={() => void press($, act.prompt)} />}
         </Box>
         {beneath}
       </Box>

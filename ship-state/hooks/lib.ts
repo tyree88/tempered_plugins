@@ -65,18 +65,18 @@ export function segments(s: Snap, now: number): Seg[] {
   return segs
 }
 
-export type Action = { label: string; prompt: string }
+export type Action = { label: string; prompt: string; hotkey?: '0' }
 
 export const COMMIT_PROMPT = 'Commit the working tree changes with a sensible message.'
 export const PUSH_PROMPT = 'Push the branch.'
 const AGE_AFTER = 5 * 60_000 // show how long the tree has been dirty once it is this old
 
-// The band's one-key action: commit while the tree is dirty; else push while commits wait on an upstream; else none.
+// The band's one-key action: commit (key 0) while the tree is dirty; else push (click only) while commits wait on an upstream; else none.
 export function action(s: Snap, now: number): Action | undefined {
   if (s.dirty) {
     const age = s.dirtySince !== undefined && now - s.dirtySince >= AGE_AFTER ? ` · ${ago(s.dirtySince, now)}` : ''
-    return { label: `commit ${s.dirty} ${s.dirty === 1 ? 'file' : 'files'}${age}`, prompt: COMMIT_PROMPT }
+    return { label: `commit ${s.dirty} ${s.dirty === 1 ? 'file' : 'files'}${age}`, prompt: COMMIT_PROMPT, hotkey: '0' }
   }
-  if (s.ahead) return { label: `push ↑${s.ahead}`, prompt: PUSH_PROMPT }
+  if (s.ahead) return { label: `push ↑${s.ahead}`, prompt: PUSH_PROMPT } // no key: a stray 0 must never push
   return undefined
 }
