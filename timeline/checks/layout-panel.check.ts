@@ -57,7 +57,22 @@ const o = buildPanel(old, [], null, 0, 30, now)
 assert.equal(o.goal, undefined)
 assert.deepEqual(o.blocked, [])
 assert.equal(o.history.length, 2)
-const empty = buildPanel([], [], null, 0, 30, now)
+// a finished plan is not the goal: it falls back to the active work (the bar still shows)
+const fin = buildPanel(nodes.slice(0, 3), [], { title: 'Pane Redesign', groups: [{ name: 'Task 1', done: 5, total: 5 }], done: 5, total: 5 }, 0, 30, now)
+assert.equal(fin.goal, 'Design the pane')
+assert.deepEqual(fin.plan, { done: 5, total: 5 })
+// a running agent with no live clock from days ago (another session's, never ended) is history, not NOW
+const stale = buildPanel([agent('a3', 'running', '2026-10-04T12:00:00Z')] as never[], [], null, 0, 30, now)
+assert.deepEqual(stale.nowAgents, [])
+assert.equal(stale.history.length, 1)
+// failed and unknown agents say so in history
+const ended = buildPanel([agent('f', 'failed', '2026-10-07T10:00:00Z'), agent('u', 'unknown', '2026-10-07T10:01:00Z')] as never[], [], null, 0, 30, now)
+assert.deepEqual(ended.history.map(r => [r.glyph, r.tone, r.text]), [
+  ['?', 'dim', 'general-purpose · sonnet — agent u (status unknown)'],
+  ['✗', 'fail', 'general-purpose · sonnet — agent f failed'],
+])
+// session open/close rows are not history, so a fresh session shows the empty state
+const empty = buildPanel([{ kind: 'session', at: '2026-10-07T11:00:00Z', title: 'session abc opened' }] as never[], [], null, 0, 30, now)
 assert.equal(empty.history.length, 0)
 assert.equal(empty.goal, undefined)
 console.log('layout-panel: ok')

@@ -12,10 +12,6 @@ export function bar(done: number, total: number, width: number): string {
   return '█'.repeat(filled) + '░'.repeat(width - filled)
 }
 
-// Cut to width with an ellipsis; never leaves half of a surrogate pair (an emoji) at the cut.
-export const fit = (text: string, width: number) =>
-  text.length > width ? `${text.slice(0, Math.max(0, width - 1)).replace(/[\uD800-\uDBFF]$/, '')}…` : text
-
 export const elapsed = (ms?: number) => {
   if (typeof ms !== 'number' || !Number.isFinite(ms)) return ''
   const s = Math.round(ms / 1000)

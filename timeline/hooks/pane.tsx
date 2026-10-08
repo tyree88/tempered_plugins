@@ -6,10 +6,13 @@ import { bar, elapsed, hhmm, tokens } from './draw'
 type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button'>
 
 export const WIDE = 70 // body columns at which NEXT and BLOCKED sit side by side
-const COLOR = { run: 'blue', ok: 'green', warn: 'yellow', normal: undefined, dim: undefined } as const
+// Theme keys where the app has one, so each theme picks its own legible shade.
+const COLOR = { run: 'blue', ok: 'success', warn: 'warning', fail: 'error', normal: undefined, dim: undefined } as const
 
 const stats = (a: AgentNode) =>
-  [a.type, a.model, elapsed(a.elapsedMs), a.tools ? `${a.tools} tools` : '', tokens(a.tokens)].filter(Boolean).join(' · ')
+  [a.type, a.model, elapsed(a.elapsedMs), a.tools ? `${a.tools} tool${a.tools === 1 ? '' : 's'}` : '', tokens(a.tokens)]
+    .filter(Boolean)
+    .join(' · ') + (a.isPinned || a.type === 'fork' ? '' : ' · ⚠ inherited model')
 
 // The whole pane from the surface's own elements: the same tree on the terminal and the desktop.
 // `page(+1)` shows older history, `page(-1)` newer. Takes no `$` (the loader rule).
@@ -26,17 +29,18 @@ export function drawPane(ui: UI, v: View, columns: number, page: (delta: number)
     <Box flexDirection="column" rowGap={1}>
       <Box key="head" flexDirection="column">
         <Text bold wrap="truncate">{head}</Text>
+        {/* One Text per line, label inline: a Text beside another in a row gets squeezed on the terminal. */}
         {p.goal && (
-          <Box key="goal" flexDirection="row" columnGap={1}>
-            <Text dimColor>GOAL</Text>
-            <Text wrap="wrap">{p.goal}</Text>
+          <Box key="goal">
+            <Text wrap="wrap">
+              <Text dimColor>GOAL</Text> {p.goal}
+            </Text>
           </Box>
         )}
         {p.plan && (
-          <Box key="plan" flexDirection="row" columnGap={1}>
-            <Text dimColor>PLAN</Text>
+          <Box key="plan">
             <Text wrap="truncate">
-              {bar(p.plan.done, p.plan.total, 12)} {p.plan.group ? `${p.plan.group} · ` : ''}
+              <Text dimColor>PLAN</Text> {bar(p.plan.done, p.plan.total, 12)} {p.plan.group ? `${p.plan.group} · ` : ''}
               {p.plan.done}/{p.plan.total} steps
             </Text>
           </Box>
@@ -56,10 +60,16 @@ export function drawPane(ui: UI, v: View, columns: number, page: (delta: number)
               <Text bold dimColor>NOW</Text>
               {p.nowAgents.map(a => (
                 <Box key={`agent-${a.id}`} flexDirection="column">
-                  <Box flexDirection={isWide ? 'row' : 'column'} columnGap={2}>
+                  {isWide ? (
+                    <Text wrap="wrap">
+                      <Text color="blue">▶ {a.title}</Text>
+                      {'  '}
+                      <Text dimColor>{stats(a)}</Text>
+                    </Text>
+                  ) : (
                     <Text color="blue" wrap="wrap">▶ {a.title}</Text>
-                    <Text dimColor wrap="wrap">{stats(a)}{a.isPinned || a.type === 'fork' ? '' : ' · ⚠ inherited model'}</Text>
-                  </Box>
+                  )}
+                  {!isWide && <Text dimColor wrap="wrap">{stats(a)}</Text>}
                   {(a.now || a.next) && (
                     <Text dimColor wrap="wrap">
                       {[a.now ? `now: ${a.now}` : '', a.next ? `next: ${a.next}` : ''].filter(Boolean).join(' · ')}
@@ -87,7 +97,7 @@ export function drawPane(ui: UI, v: View, columns: number, page: (delta: number)
                 <Box key="blocked" flexDirection="column" width={isWide && p.next.length ? '50%' : '100%'}>
                   <Text bold dimColor>BLOCKED</Text>
                   {p.blocked.map((b, i) => (
-                    <Text key={`blocked-${i}`} color="yellow" wrap="wrap">
+                    <Text key={`blocked-${i}`} color={COLOR.warn} wrap="wrap">
                       ⚠ {b.title}{b.waitsOn ? ` — waits on #${b.waitsOn}` : ''}
                     </Text>
                   ))}

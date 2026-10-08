@@ -6,10 +6,13 @@ const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
 const asId = (v: unknown) => (typeof v === 'string' || typeof v === 'number' ? bare(String(v)) : '')
 const ids = (v: unknown) => (Array.isArray(v) ? v.map(asId).filter(Boolean) : [])
 
+// The id a TaskCreate result gives the new task: the structured `task.id`, else the "#<n>" in its text.
+export const createdId = (result: unknown, text: string): string | undefined =>
+  asId((result as { task?: { id?: unknown } } | null | undefined)?.task?.id) || /#(\d+)/.exec(text)?.[1]
+
 // One main-loop TaskCreate / TaskUpdate / TodoWrite call → the new list. `input` is the tool call's input fields;
-// `result` the call's result text (TaskCreate's names the new id as "#<n>"); `fallbackId` when it does not.
-// Any other tool, or a shape it does not expect, leaves the list as it was.
-export function applyTaskCall(tasks: readonly Task[], tool: string, input: object, result: string, fallbackId: string): Task[] {
+// `id` names the task a TaskCreate adds (see createdId). Any other tool, or a shape it does not expect, leaves the list as it was.
+export function applyTaskCall(tasks: readonly Task[], tool: string, input: object, id: string): Task[] {
   const i = input as Record<string, unknown>
   if (tool === 'TodoWrite') {
     if (!Array.isArray(i.todos)) return [...tasks]
@@ -24,19 +27,18 @@ export function applyTaskCall(tasks: readonly Task[], tool: string, input: objec
   if (tool === 'TaskCreate') {
     const subject = text(i.subject)
     if (!subject) return [...tasks]
-    const id = /#(\d+)/.exec(result)?.[1] ?? fallbackId
     return [...tasks.filter(t => t.id !== id), { id, subject, status: 'pending', blockedBy: [] }]
   }
   if (tool === 'TaskUpdate') {
-    const id = asId(i.taskId)
-    if (!id) return [...tasks]
-    if (i.status === 'deleted') return tasks.filter(t => t.id !== id)
+    const target = asId(i.taskId)
+    if (!target) return [...tasks]
+    if (i.status === 'deleted') return tasks.filter(t => t.id !== target)
     const subject = text(i.subject)
     const adds = ids(i.addBlockedBy)
     const blocks = ids(i.addBlocks) // tasks that wait on this one
     return tasks.map(t =>
-      t.id !== id
-        ? blocks.includes(t.id) ? { ...t, blockedBy: [...new Set([...t.blockedBy, id])] } : t
+      t.id !== target
+        ? blocks.includes(t.id) ? { ...t, blockedBy: [...new Set([...t.blockedBy, target])] } : t
         : {
             ...t,
             ...(subject ? { subject } : {}),

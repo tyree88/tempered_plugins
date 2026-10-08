@@ -6,7 +6,7 @@ import { buildNodes, buildPanel } from './layout'
 import { ciFact, clip, factsFromBash, folderName, fromLog, lastCd, mainArg, mergeEntries, parseJsonl, repoRoot, toJsonl, tzMinutes, type Found } from './model'
 import { drawPane } from './pane'
 import { parsePlan, type Plan } from './plan'
-import { applyTaskCall, fromTaskList } from './tasks'
+import { applyTaskCall, createdId, fromTaskList } from './tasks'
 
 const view = atom({ plugin: 'timeline', key: 'view' } as const, null)
 const tasks = atom({ plugin: 'timeline', key: 'tasks' } as const, [] as Task[])
@@ -15,9 +15,10 @@ const PANE = 'timeline'
 const TOOL = 'mcp__timeline__log'
 const PAGE_SIZE = 30
 const REFRESH_MS = 10_000
-const TASK_TOOLS = new Set(['TaskCreate', 'TaskUpdate', 'TodoWrite'])
-const DOC_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit'])
-const TASK_OR_DOC = new RegExp(`^(${[...TASK_TOOLS, 'TaskList', ...DOC_TOOLS].join('|')})$`) // one unmatched tool.call hook per plugin
+const TASK_TOOLS = ['TaskCreate', 'TaskUpdate', 'TodoWrite', 'TaskList'] as const
+const DOC_TOOLS = ['Read', 'Write', 'Edit'] as const
+const PLAN_MAX_BYTES = 262_144 // a bigger .md is not read for plan detection
+const AUTO_OPEN_TASKS = 3 // open tasks that make the pane worth opening
 
 const MAIN_NOTE =
   'Timeline: call `mcp__timeline__log` (1) once after a user message that sets or changes direction: kind "talk", title = one-line summary of what they asked or decided; (2) when you start a task, finish a step of it, finish it, or get blocked: kind "work", a stable kebab-case `task`, `done`/`total` steps, `status`, `how` (one line), `next` (one line). Never once per tool call; about one entry every few minutes of work. Do not mention the logging in replies.'
@@ -190,6 +191,7 @@ const st = {
   live: {} as Record<string, LiveAgent>,
   planPath: undefined as string | undefined,
   plan: undefined as { path: string; mtime: number; parsed: Plan | null } | undefined,
+  notPlan: new Map<string, number>(), // .md path → the mtime at which it was read and was not a plan
   taskSeq: 0,
 }
 
@@ -241,6 +243,14 @@ const stamp = async ($: Engine, agentId?: string) => ({
 
 const isShown = async ($: Engine) => (await $.ui.panes()).some(p => p.id === PANE && p.isShown && p.isPlaced)
 
+// Opens the pane once per process, on the first sign of real work. Skips when the pane is already open.
+// panes() lists only open panes, so one the person closed reopens once after a reload.
+const autoOpen = async ($: Engine) => {
+  if (st.hasAutoOpened) return
+  st.hasAutoOpened = true
+  if (!(await $.ui.panes()).some(p => p.id === PANE)) void $.ui.open({ id: PANE, title: 'Timeline' }).catch(() => {})
+}
+
 const record = async ($: Engine, entry: Entry) => {
   if (!st.store) return 'timeline has no repo yet'
   const error = await st.store.append(entry)
@@ -249,11 +259,7 @@ const record = async ($: Engine, entry: Entry) => {
     st.hasWarnedWrite = true
     $.ui.toast(`timeline: can't write ${st.store.dir}: ${error}`, { timeoutMs: 10_000 })
   }
-  if (entry.kind === 'work' && !entry.agentId && !st.hasAutoOpened) {
-    st.hasAutoOpened = true
-    // Skip when the pane is already open. panes() lists only open panes, so one the person closed reopens once after a reload.
-    if (!(await $.ui.panes()).some(p => p.id === PANE)) void $.ui.open({ id: PANE, title: 'Timeline' }).catch(() => {})
-  }
+  if (entry.kind === 'work' && !entry.agentId) await autoOpen($)
   await redraw($)
   return error
 }
@@ -452,27 +458,34 @@ export const register: Register = on => {
   })
 
   // Claude's own task list and the plan it works from feed NOW / NEXT / BLOCKED and the PLAN bar.
-  on('tool.call', { tool: TASK_OR_DOC }, async ($, e, next) => {
+  // Redraws are not awaited: the model gets its result without waiting on the pane.
+  on('tool.call', { tool: [...TASK_TOOLS, ...DOC_TOOLS] }, async ($, e, next) => {
     const result = await next(e)
     if (e.agentId || result.deny !== undefined || result.isError === true) return result
-    if (e.tool === 'TaskList') {
+    if ((TASK_TOOLS as readonly string[]).includes(e.tool)) {
       // TaskList shows the live list, so it replaces the mirror (it also catches tasks changed outside this loop's own calls).
-      const listed = fromTaskList(result.result)
-      if (listed) {
-        await update($, tasks, () => listed)
-        await redraw($)
-      }
-    } else if (TASK_TOOLS.has(e.tool)) {
-      await update($, tasks, list => applyTaskCall(list, e.tool, e, result.text ?? '', `c${++st.taskSeq}`))
-      await redraw($)
-    } else if (DOC_TOOLS.has(e.tool) && typeof (e as { file_path?: unknown }).file_path === 'string') {
+      const listed = e.tool === 'TaskList' ? fromTaskList(result.result) : undefined
+      if (e.tool === 'TaskList' && !listed) return result
+      const id = e.tool === 'TaskCreate' ? (createdId(result.result, result.text ?? '') ?? `c${++st.taskSeq}`) : ''
+      const list = await update($, tasks, prev => listed ?? applyTaskCall(prev, e.tool, e, id))
+      if (list.filter(t => t.status !== 'completed').length >= AUTO_OPEN_TASKS) void autoOpen($).catch(() => {})
+      void redraw($).catch(() => {})
+    } else if (typeof (e as { file_path?: unknown }).file_path === 'string') {
       const path = (e as { file_path: string }).file_path
-      if (path.endsWith('.md') && path !== st.planPath) {
+      if (path === st.planPath) {
+        if (e.tool !== 'Read') void redraw($).catch(() => {}) // the plan changed: its bar moves
+      } else if (path.endsWith('.md')) {
         try {
-          // Only a file with counted boxes (outside code fences) becomes the plan; any other .md leaves the real one alone.
-          if (parsePlan(await $.fs.read(path))) {
-            st.planPath = path
-            await redraw($)
+          // Only a file with counted boxes (outside code fences) that is named as a plan or has 3+ boxes becomes the plan;
+          // any other .md leaves the real one alone and is not read again until it changes.
+          const { size, mtimeMs } = await $.fs.stat(path)
+          if (size <= PLAN_MAX_BYTES && st.notPlan.get(path) !== mtimeMs) {
+            const parsed = parsePlan(await $.fs.read(path))
+            if (parsed && (/plan/i.test(path) || parsed.total >= 3)) {
+              st.planPath = path
+              st.plan = { path, mtime: mtimeMs, parsed }
+              void redraw($).catch(() => {})
+            } else st.notPlan.set(path, mtimeMs)
           }
         } catch {} // unreadable: not a plan
       }
@@ -487,6 +500,7 @@ export const register: Register = on => {
     if (result.deny !== undefined || !result.agentId) return result
     await ready
     st.live[result.agentId] = { tools: 0, startedAt: await $.clock.now() }
+    if (!e.parentAgentId) await autoOpen($) // a main-loop spawn
     const prompt = clip(e.prompt, 2000)
     await record($, {
       v: 1,

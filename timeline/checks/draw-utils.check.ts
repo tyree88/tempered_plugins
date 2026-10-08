@@ -1,9 +1,7 @@
 // Self-check for the pane's text helpers. Run: node timeline/checks/draw-utils.check.ts
 import assert from 'node:assert/strict'
-import { bar, elapsed, fit, hhmm, tokens } from '../hooks/draw.ts'
+import { bar, elapsed, hhmm, tokens } from '../hooks/draw.ts'
 
-assert.equal(fit(`${'x'.repeat(8)}😀 tail`, 10), `${'x'.repeat(8)}…`)
-assert.equal(fit('short', 10), 'short')
 assert.equal(bar(2, 4, 10), '█████░░░░░')
 assert.equal(bar(0, 3, 6), '░░░░░░')
 assert.equal(bar(9, 3, 4), '████')

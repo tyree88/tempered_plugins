@@ -84,7 +84,7 @@ export type View = { repo: string; branch?: string; bad: number; tz: number; pan
 export type TaskStatus = 'pending' | 'in_progress' | 'completed'
 export type Task = { id: string; subject: string; status: TaskStatus; blockedBy: string[] }
 
-export type HistoryRow = { at: string; glyph: string; text: string; tone: 'normal' | 'dim' | 'ok' | 'warn' | 'run' }
+export type HistoryRow = { at: string; glyph: string; text: string; tone: 'normal' | 'dim' | 'ok' | 'warn' | 'fail' | 'run' }
 
 export type Panel = {
   goal?: string
