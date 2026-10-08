@@ -25,7 +25,7 @@ const engine = (on: On, git: { dirty: number; ahead: number; refuseSubmit?: bool
     const a = e.argv.join(' ')
     if (!a.startsWith('git ')) return fail // gh --version, gh api, gh pr view
     if (a.includes('--show-toplevel')) return ok('/repo')
-    if (a.includes('rev-parse @{u}')) return fail // no upstream data for CI
+    if (a.includes('rev-parse @{u}')) return fail // no upstream ref: CI/PR data stays out of this test
     if (a.includes('rev-parse HEAD')) return ok('b8afa63aaaaaaaa')
     if (a.includes('symbolic-ref')) return ok('main')
     if (a.includes('status --porcelain')) return ok(Array.from({ length: git.dirty }, (_, i) => ` M f${i}.ts`).join('\n'))
@@ -44,7 +44,7 @@ const engine = (on: On, git: { dirty: number; ahead: number; refuseSubmit?: bool
 }
 
 const start = async ($: Engine, clock: { settle: () => Promise<void> }, surface: 'terminal' | 'desktop') => {
-  await $.session.start({ cwd: '/repo', surface, isInteractive: true } as never)
+  await $.session.start({ cwd: '/repo', surface, isInteractive: true })
   await clock.settle() // the first refresh is not awaited
 }
 
@@ -73,7 +73,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await clock.settle()
     expect(submitted).toEqual([COMMIT_PROMPT])
     expect(await ui.find({ key: 'act' })).toBeUndefined()
-    await expect(ui.press({ key: 'act' })).rejects.toThrow() // nothing to press: the kit refuses, no second submit
+    await expect(ui.press({ key: 'act' })).rejects.toThrow(/no Button of ship-state keyed "act"/) // nothing to press: the kit refuses, no second submit
     await clock.settle()
     expect(submitted).toEqual([COMMIT_PROMPT])
     git.dirty = 0 // the commit landed
@@ -87,7 +87,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 
   test(`a subagent's turn does not bring the button back; 60 s does (${surface})`, async ($, on) => {
-    const { clock, git } = engine(on, { dirty: 3, ahead: 0 })
+    const { clock } = engine(on, { dirty: 3, ahead: 0 })
     const ui = await mount($)
     await start($, clock, surface)
     await ui.press({ key: 'act' })
@@ -95,9 +95,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await finishTurn($, 'agent-1')
     await clock.settle()
     expect(await ui.find({ key: 'act' })).toBeUndefined()
-    await clock.advance(61_000)
+    await clock.advance(21_000) // one refresh tick: the button must still be hidden
     await clock.settle()
-    expect(git.dirty).toBe(3)
+    expect(await ui.find({ key: 'act' })).toBeUndefined()
+    await clock.advance(40_000) // 61 s after the press: the window has passed
+    await clock.settle()
     expect((await ui.find({ key: 'act' }))?.props.label).toBe('commit 3 files')
   })
 
@@ -134,5 +136,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await start($, clock, surface)
     expect(await ui.find({ key: 'act' })).toBeUndefined()
     expect(await ui.find({ text: 'clean' })).toBeDefined()
+  })
+
+  test(`a survey owns the band: nothing of ours draws (${surface})`, async ($, on) => {
+    const { clock } = engine(on, { dirty: 3, ahead: 0 })
+    const ui = await $.ui.mount({ plugin: 'ship-state', surface, component: 'AbovePrompt', props: { ...BAND(false), hasSurvey: true } })
+    await start($, clock, surface)
+    expect(await ui.find({ key: 'act' })).toBeUndefined()
+    expect(await ui.find({ text: '3 dirty' })).toBeUndefined()
+    expect(await ui.find({ text: 'beneath' })).toBeDefined()
   })
 }
