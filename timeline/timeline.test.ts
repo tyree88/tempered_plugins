@@ -202,7 +202,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ type: 'Text', text: '▶ Explore feed code' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /^█+░+ 2\/6$/ })).toBeDefined()
     // HISTORY: the agent is a child row under its task's work row
-    expect(await ui.find({ type: 'Text', text: /^ {2}└ general-purpose · claude-sonnet-5 · Map the feed module/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^ {2}└ ▶ general-purpose · claude-sonnet-5 · Map the feed module/ })).toBeDefined()
     expect(await ui.findAll({ type: 'Text', text: HISTORY_ROW })).toHaveLength(1) // the work row; the agent is not top-level
     // AGENTS: one lane; an SVG on the desktop, a text bar on the terminal
     expect(await ui.find({ key: 'lanes' })).toBeDefined()
@@ -211,7 +211,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
       expect(await ui.find({ type: 'Svg' })).toBeDefined()
     } else {
       expect(await ui.find({ type: 'Svg' }), 'no svg').toBeUndefined()
-      expect(await ui.find({ type: 'Text', text: /^general-p ·*▓+$/ }), 'lane text').toBeDefined()
+      expect(await ui.find({ type: 'Text', text: /^Map the feed m ·*▓+$/ }), 'lane text').toBeDefined()
     }
     expect(await ui.find({ type: 'Text', text: 'now' })).toBeDefined() // the axis
   })

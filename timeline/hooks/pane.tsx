@@ -2,7 +2,7 @@ import type { Elements } from 'claude-code'
 
 import type { AgentNode, View } from '../types'
 import { bar, elapsed, hhmm, tokens } from './draw'
-import { lanesSvg, lanesText } from './lanes'
+import { LANE_INDENT, lanesSvg, lanesText } from './lanes'
 
 // Svg only where the surface draws it (desktop, mobile, editor); the terminal draws the lanes as text.
 type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button'> & { Svg?: Elements['desktop']['Svg'] }
@@ -129,16 +129,14 @@ export function drawPane(ui: UI, v: View, columns: number, page: (delta: number)
           {Svg ? (
             <Svg
               source={lanesSvg(lanes, from, to, columns * 7)}
-              width={columns * 7}
-              height={16 * lanes.length + 20}
               alt={`Agent runs in the last 15 minutes: ${lanes.map(l => `${l.label} ${l.state}`).join(', ')}`}
             />
           ) : (
-            lanesText(lanes, from, to, columns - 12).map((line, i) => (
+            lanesText(lanes, from, to, columns - LANE_INDENT - 2).map((line, i) => (
               <Text key={`lane-${i}`} dimColor wrap="truncate">{line}</Text>
             ))
           )}
-          <Box flexDirection="row" justifyContent="space-between">
+          <Box flexDirection="row" justifyContent="space-between" paddingLeft={LANE_INDENT} paddingRight={2}>
             <Text dimColor>{hhmm(iso(from), v.tz)}</Text>
             <Text dimColor>{hhmm(iso((from + to) / 2), v.tz)}</Text>
             <Text dimColor>now</Text>
@@ -157,7 +155,9 @@ export function drawPane(ui: UI, v: View, columns: number, page: (delta: number)
           </Box>
           {p.history.map((r, i) =>
             r.depth ? (
-              <Text key={`row-${i}`} dimColor wrap="truncate">{`  ${r.isLast ? '└' : '├'} ${r.text}`}</Text>
+              <Text key={`row-${i}`} color={r.tone === 'fail' ? COLOR.fail : undefined} dimColor={r.tone !== 'fail'} wrap="truncate">
+                {`  ${r.isLast ? '└' : '├'} ${r.glyph} ${r.text}`}
+              </Text>
             ) : (
               <Text key={`row-${i}`} color={COLOR[r.tone]} dimColor={r.tone === 'dim'} wrap="truncate">
                 {hhmm(r.at, v.tz)} {r.glyph} {r.text}
