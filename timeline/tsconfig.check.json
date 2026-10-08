@@ -20,6 +20,7 @@
     "../.claude/types/claude-code.d.ts",
     "../ship-state/types/index.d.ts",
     "hooks",
-    "types"
+    "types",
+    "timeline.test.ts"
   ]
 }
