@@ -80,7 +80,7 @@ app ⎇ feat/waitlist  ·  3 dirty  ·  ↑2 ↓0  ·  PR #312  ·  CI ⏳ 4/5  
 | `PR #312` | The branch has open pull request 312. |
 | `CI ⏳ 4/5` | 4 of 5 CI checks are complete. |
 | `prod = HEAD ✓` | Production runs the current commit. |
-| `0: commit 3 files` | A button. Press `0` in an empty prompt box, or click it. ship-state sends "Commit the working tree changes with a sensible message." to Claude. After 5 minutes, the button also shows how long the files have waited, for example `· 24m ago`. |
+| `0: commit 3 files` | A button. Press `0` in an empty prompt box, or click it. ship-state sends "Commit the working tree changes with a sensible message." to Claude. After 5 minutes, the button also shows how long the files have waited, for example `· 24m ago`. The key `0` works only when the prompt box is empty. If you type `0` as the first character of a message, it presses the button and sends the commit prompt or the push prompt. Type a space first to start a message with `0`. |
 
 3. After a push or a merge, wait for the toast. ship-state shows "CI ✓", "CI ✗" with the failed check names, or "Live on prod".
 4. When the tree is clean and commits are not pushed, the button reads `0: push ↑2`. It sends "Push the branch." to Claude. The button does not show while Claude works. After you press it, the button stays hidden until Claude's turn ends, or for 60 seconds at most.
