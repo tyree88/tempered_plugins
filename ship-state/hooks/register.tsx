@@ -67,7 +67,10 @@ const press = async ($: Engine, prompt: string) => {
   await update($, snap, s => (s ? { ...s } : s)) // a new version redraws the band without the button
   try {
     await $.prompt.submit({ text: prompt, asUser: true })
-  } catch {}
+  } catch {
+    st.sentAt = 0 // nothing was queued: show the button again
+    await update($, snap, s => (s ? { ...s } : s))
+  }
 }
 
 const refresh = async ($: Engine, wantRemote: boolean) => {

@@ -48,4 +48,6 @@ assert.deepEqual(action({ ...snap, dirty: 3 }, now), { label: 'commit 3 files', 
 assert.deepEqual(action({ ...snap, dirty: 0, ahead: 2 }, now), { label: 'push ↑2', prompt: PUSH_PROMPT })
 assert.equal(action({ ...snap, dirty: 0, ahead: 0 }, now), undefined)
 assert.equal(action({ ...snap, dirty: 0, ahead: null }, now), undefined)
+assert.deepEqual(action({ ...snap, dirty: 2, dirtySince: now - 5 * 60_000 }, now), { label: 'commit 2 files · 5m ago', prompt: COMMIT_PROMPT })
+assert.deepEqual(action({ ...snap, dirty: 2, dirtySince: now - 90 * 60_000 }, now), { label: 'commit 2 files · 2h ago', prompt: COMMIT_PROMPT })
 console.log('ship-state: ok')
