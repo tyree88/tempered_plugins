@@ -12,7 +12,7 @@
     {
       "name": "ship-state",
       "source": "./ship-state",
-      "description": "Band above the prompt: branch, dirty files, ahead/behind, PR, CI and prod deploy for the repo the session works in; toasts when CI finishes or prod goes live."
+      "description": "Band above the prompt: branch, dirty files, ahead/behind, PR, CI and prod deploy for the repo the session works in; toasts when CI finishes or prod goes live; one-key commit/push button."
     },
     {
       "name": "timeline",
