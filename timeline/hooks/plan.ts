@@ -7,14 +7,17 @@ const BOX = /^\s*[-*] \[( |x|X)\]/
 // Fenced code is skipped, so a `# comment` or a `- [ ]` inside a code block counts for nothing.
 export function parsePlan(markdown: string): Plan | null {
   let title = ''
-  let inFence = false
+  let fence = '' // the opening marker while inside a fenced block
   const groups: PlanGroup[] = []
   for (const line of markdown.split('\n')) {
-    if (/^\s*```/.test(line)) {
-      inFence = !inFence
+    const mark = /^\s*(`{3,}|~{3,})(.*)$/.exec(line)
+    if (mark) {
+      // Only the same character, at least as long and with nothing after it, closes a fence (so ```` can hold ```).
+      if (!fence) fence = mark[1]!
+      else if (mark[1]![0] === fence[0] && mark[1]!.length >= fence.length && !mark[2]!.trim()) fence = ''
       continue
     }
-    if (inFence) continue
+    if (fence) continue
     const h1 = /^# (.+)/.exec(line)
     if (h1 && !title) {
       title = h1[1]!.trim().replace(/\s+Implementation Plan$/i, '')
@@ -40,5 +43,3 @@ export function parsePlan(markdown: string): Plan | null {
 
 // The first group with an unticked box.
 export const currentGroup = (plan: Plan) => plan.groups.find(g => g.done < g.total)?.name
-
-export const hasBoxes = (markdown: string) => new RegExp(BOX.source, 'm').test(markdown)

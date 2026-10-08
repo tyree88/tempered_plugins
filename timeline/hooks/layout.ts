@@ -98,6 +98,7 @@ export function buildNodes(
 }
 
 const NEXT_SHOWN = 5
+const DAY_MS = 24 * 60 * 60 * 1000
 
 function historyRow(node: Node): HistoryRow {
   if (node.kind === 'agent') {
@@ -120,17 +121,20 @@ function historyRow(node: Node): HistoryRow {
 
 // Nodes (oldest first) + this session's task mirror + the active plan → what the pane shows.
 // History is newest first; page 0 is the newest `size` rows; an out-of-range page clamps.
-export function buildPanel(nodes: readonly Node[], tasks: readonly Task[], plan: Plan | null, page: number, size: number): Panel {
+// `now` (ms) lets GOAL and BLOCKED ignore log entries from an earlier day; history still shows them.
+export function buildPanel(nodes: readonly Node[], tasks: readonly Task[], plan: Plan | null, page: number, size: number, now: number): Panel {
   const latestWork = new Map<string, WorkNode>()
   for (const n of nodes) if (n.kind === 'work') latestWork.set(n.task, n)
-  const activeWork = [...nodes].reverse().find((n): n is WorkNode => n.kind === 'work' && n.status === 'active')
+  const isFresh = (n: WorkNode) => now - Date.parse(n.at) < DAY_MS
+  // The newest task whose latest entry is still active (an older 'active' entry of a task since done does not count).
+  const activeWork = [...nodes].reverse().find((n): n is WorkNode => n.kind === 'work' && n.status === 'active' && latestWork.get(n.task) === n && isFresh(n))
 
   const open = tasks.filter(t => t.status !== 'completed')
-  const waiting = open.filter(t => isBlocked(t, tasks))
+  const waiting = open.filter(t => t.status === 'pending' && isBlocked(t, tasks)) // an in-progress task shows in NOW only
   const ready = open.filter(t => t.status === 'pending' && !isBlocked(t, tasks))
   const blocked = [
     ...waiting.map(t => ({ title: t.subject, waitsOn: t.blockedBy.find(id => tasks.some(x => x.id === id && x.status !== 'completed')) })),
-    ...[...latestWork.values()].filter(w => w.status === 'blocked').map(w => ({ title: w.title })),
+    ...[...latestWork.values()].filter(w => w.status === 'blocked' && isFresh(w)).map(w => ({ title: w.title })),
   ]
 
   const rows = [...nodes].reverse().map(historyRow)

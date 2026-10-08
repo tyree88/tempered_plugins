@@ -5,8 +5,8 @@ import type { Entry, LiveAgent, Task, View } from '../types'
 import { buildNodes, buildPanel } from './layout'
 import { ciFact, clip, factsFromBash, folderName, fromLog, lastCd, mainArg, mergeEntries, parseJsonl, repoRoot, toJsonl, tzMinutes, type Found } from './model'
 import { drawPane } from './pane'
-import { hasBoxes, parsePlan, type Plan } from './plan'
-import { applyTaskCall } from './tasks'
+import { parsePlan, type Plan } from './plan'
+import { applyTaskCall, fromTaskList } from './tasks'
 
 const view = atom({ plugin: 'timeline', key: 'view' } as const, null)
 const tasks = atom({ plugin: 'timeline', key: 'tasks' } as const, [] as Task[])
@@ -17,7 +17,7 @@ const PAGE_SIZE = 30
 const REFRESH_MS = 10_000
 const TASK_TOOLS = new Set(['TaskCreate', 'TaskUpdate', 'TodoWrite'])
 const DOC_TOOLS = new Set(['Read', 'Write', 'Edit', 'MultiEdit'])
-const TASK_OR_DOC = new RegExp(`^(${[...TASK_TOOLS, ...DOC_TOOLS].join('|')})$`) // one unmatched tool.call hook per plugin
+const TASK_OR_DOC = new RegExp(`^(${[...TASK_TOOLS, 'TaskList', ...DOC_TOOLS].join('|')})$`) // one unmatched tool.call hook per plugin
 
 const MAIN_NOTE =
   'Timeline: call `mcp__timeline__log` (1) once after a user message that sets or changes direction: kind "talk", title = one-line summary of what they asked or decided; (2) when you start a task, finish a step of it, finish it, or get blocked: kind "work", a stable kebab-case `task`, `done`/`total` steps, `status`, `how` (one line), `next` (one line). Never once per tool call; about one entry every few minutes of work. Do not mention the logging in replies.'
@@ -212,8 +212,9 @@ async function loadPlan($: Engine): Promise<Plan | null> {
 
 const redraw = async ($: Engine) => {
   const mine = ++st.drawSeq
-  const nodes = buildNodes(st.entries, st.live, st.session, await $.clock.now())
-  const panel = buildPanel(nodes, await read($, tasks), await loadPlan($), st.page, PAGE_SIZE)
+  const now = await $.clock.now()
+  const nodes = buildNodes(st.entries, st.live, st.session, now)
+  const panel = buildPanel(nodes, await read($, tasks), await loadPlan($), st.page, PAGE_SIZE, now)
   st.page = panel.page
   const next: View = { repo: st.repo?.name ?? 'timeline', ...(st.branch ? { branch: st.branch } : {}), bad: st.bad, tz: st.tz, panel }
   if (mine !== st.drawSeq) return // an older redraw that finishes late must not land last
@@ -454,14 +455,22 @@ export const register: Register = on => {
   on('tool.call', { tool: TASK_OR_DOC }, async ($, e, next) => {
     const result = await next(e)
     if (e.agentId || result.deny !== undefined || result.isError === true) return result
-    if (TASK_TOOLS.has(e.tool)) {
+    if (e.tool === 'TaskList') {
+      // TaskList shows the live list, so it replaces the mirror (it also catches tasks changed outside this loop's own calls).
+      const listed = fromTaskList(result.result)
+      if (listed) {
+        await update($, tasks, () => listed)
+        await redraw($)
+      }
+    } else if (TASK_TOOLS.has(e.tool)) {
       await update($, tasks, list => applyTaskCall(list, e.tool, e, result.text ?? '', `c${++st.taskSeq}`))
       await redraw($)
     } else if (DOC_TOOLS.has(e.tool) && typeof (e as { file_path?: unknown }).file_path === 'string') {
       const path = (e as { file_path: string }).file_path
       if (path.endsWith('.md') && path !== st.planPath) {
         try {
-          if (hasBoxes(await $.fs.read(path))) {
+          // Only a file with counted boxes (outside code fences) becomes the plan; any other .md leaves the real one alone.
+          if (parsePlan(await $.fs.read(path))) {
             st.planPath = path
             await redraw($)
           }

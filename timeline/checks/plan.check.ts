@@ -1,6 +1,6 @@
 // Self-check for the plan parser. Run: node timeline/checks/plan.check.ts
 import assert from 'node:assert/strict'
-import { currentGroup, hasBoxes, parsePlan } from '../hooks/plan.ts'
+import { currentGroup, parsePlan } from '../hooks/plan.ts'
 
 const md = [
   '# Pane Redesign Implementation Plan',
@@ -30,6 +30,14 @@ assert.equal(plan.total, 4)
 assert.equal(currentGroup(plan), 'Task 2: Parser')
 assert.equal(parsePlan('# Just notes\n\nNo boxes.'), null)
 assert.equal(parsePlan('- [ ] loose box')?.groups[0]?.name, 'Plan')
-assert.ok(hasBoxes('text\n  - [ ] x'))
-assert.ok(!hasBoxes('[ ] not a list item'))
+// a 4-backtick fence holds a bare ``` line without closing; boxes inside it count for nothing
+const wide = parsePlan(['# T', '### G', '- [ ] real', '````md', '```', '- [ ] in fence', '```', '- [ ] still in fence', '````', '- [x] after'].join('\n'))
+assert.deepEqual(wide?.groups, [{ name: 'G', done: 1, total: 2 }])
+// a ~~~ fence is skipped, and a ``` line does not close it
+const tilde = parsePlan(['# T', '### G', '~~~', '```', '- [ ] in fence', '~~~', '- [x] after'].join('\n'))
+assert.deepEqual(tilde?.groups, [{ name: 'G', done: 1, total: 1 }])
+// boxes only inside fences: no plan at all
+assert.equal(parsePlan('# T\n```\n- [ ] x\n```\n'), null)
+// an info string cannot close a fence
+assert.equal(parsePlan('```\n```js\n- [ ] x\n```\n'), null)
 console.log('plan: ok')

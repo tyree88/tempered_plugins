@@ -1,6 +1,6 @@
 // Self-check for the task mirror. Run: node timeline/checks/tasks.check.ts
 import assert from 'node:assert/strict'
-import { applyTaskCall, isBlocked } from '../hooks/tasks.ts'
+import { applyTaskCall, fromTaskList, isBlocked } from '../hooks/tasks.ts'
 import type { Task } from '../types/index.d.ts'
 
 let list: Task[] = []
@@ -29,6 +29,29 @@ assert.deepEqual(list, [
   { id: 't0', subject: 'a', status: 'completed', blockedBy: [] },
   { id: 't2', subject: 'b', status: 'pending', blockedBy: [] },
 ])
+// addBlocks: the other task waits on this one; a numeric taskId works
+let g: Task[] = []
+g = applyTaskCall(g, 'TaskCreate', { subject: 'A' }, 'Task #1 created', 'x')
+g = applyTaskCall(g, 'TaskCreate', { subject: 'B' }, 'Task #2 created', 'x')
+g = applyTaskCall(g, 'TaskUpdate', { taskId: '1', addBlocks: ['#2'] }, '', 'x')
+assert.deepEqual(g.map(t => t.blockedBy), [[], ['1']])
+assert.ok(isBlocked(g[1]!, g))
+g = applyTaskCall(g, 'TaskUpdate', { taskId: 1, status: 'completed' }, '', 'x')
+assert.equal(g[0]?.status, 'completed')
+assert.ok(!isBlocked(g[1]!, g))
+// TaskList: the result's tasks replace the mirror; bad rows are dropped, a wrong shape is null
+assert.deepEqual(fromTaskList({ tasks: [
+  { id: '1', subject: 'A', status: 'completed', blockedBy: [] },
+  { id: 2, subject: ' B ', status: 'weird', owner: 'me', blockedBy: ['#1', 7] },
+  { id: '3', subject: ' ', status: 'pending', blockedBy: [] },
+] }), [
+  { id: '1', subject: 'A', status: 'completed', blockedBy: [] },
+  { id: '2', subject: 'B', status: 'pending', blockedBy: ['1', '7'] },
+])
+assert.deepEqual(fromTaskList({ tasks: [] }), [])
+assert.equal(fromTaskList({ tasks: [{ nope: 1 }] }), null) // rows exist but none parse: keep the mirror
+assert.equal(fromTaskList('3 tasks'), null)
+assert.equal(fromTaskList(undefined), null)
 assert.deepEqual(applyTaskCall(list, 'Bash', { command: 'ls' }, '', 'x'), list)
 assert.deepEqual(applyTaskCall(list, 'TodoWrite', { todos: 'nope' }, '', 'x'), list)
 console.log('tasks: ok')
