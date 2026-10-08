@@ -97,29 +97,6 @@ export function buildNodes(
   return nodes
 }
 
-// Header line: repo, then counts of tasks by their latest status (subagent logs excluded).
-export function summarize(entries: readonly Entry[], repo: string, bad: number): string {
-  const latest = new Map<string, string>()
-  for (const e of entries) if (e.kind === 'work' && !e.agentId) latest.set(e.task ?? 'task', e.status ?? 'active')
-  const parts = [repo]
-  if (latest.size) {
-    const count = (status: string) => [...latest.values()].filter(v => v === status).length
-    parts.push(`${latest.size} task${latest.size === 1 ? '' : 's'}`, `${count('done')} done`, `${count('blocked')} blocked`, `${count('active')} active`)
-  } else {
-    parts.push('no milestones logged yet')
-  }
-  if (bad) parts.push(`${bad} line${bad === 1 ? '' : 's'} unreadable`)
-  return parts.join(' · ')
-}
-
-// Page 0 is the newest `size` nodes; out-of-range pages clamp.
-export function paginate(nodes: readonly Node[], page: number, size: number): { nodes: Node[]; page: number; pages: number } {
-  const pages = Math.max(1, Math.ceil(nodes.length / size))
-  const clamped = Math.min(Math.max(0, page), pages - 1)
-  const end = nodes.length - clamped * size
-  return { nodes: nodes.slice(Math.max(0, end - size), end), page: clamped, pages }
-}
-
 const NEXT_SHOWN = 5
 
 function historyRow(node: Node): HistoryRow {

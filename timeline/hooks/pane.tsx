@@ -1,10 +1,9 @@
 import type { Elements } from 'claude-code'
 
-import type { AgentNode, Panel } from '../types'
+import type { AgentNode, View } from '../types'
 import { bar, elapsed, hhmm, tokens } from './draw'
 
 type UI = Pick<Elements['terminal'], 'Box' | 'Text' | 'Button'>
-export type PaneView = { repo: string; branch?: string; bad: number; tz: number; panel: Panel }
 
 export const WIDE = 70 // body columns at which NEXT and BLOCKED sit side by side
 const COLOR = { run: 'blue', ok: 'green', warn: 'yellow', normal: undefined, dim: undefined } as const
@@ -14,7 +13,7 @@ const stats = (a: AgentNode) =>
 
 // The whole pane from the surface's own elements: the same tree on the terminal and the desktop.
 // `page(+1)` shows older history, `page(-1)` newer. Takes no `$` (the loader rule).
-export function drawPane(ui: UI, v: PaneView, columns: number, page: (delta: number) => () => void) {
+export function drawPane(ui: UI, v: View, columns: number, page: (delta: number) => () => void) {
   const { Box, Text, Button } = ui
   const p = v.panel
   const isWide = columns >= WIDE
