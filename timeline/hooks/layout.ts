@@ -1,4 +1,6 @@
 import type { AgentNode, Entry, HistoryRow, LiveAgent, Node, Panel, Task, WorkNode } from '../types'
+import { elapsed } from './draw.ts'
+import { buildLanes } from './lanes.ts'
 import { currentGroup, type Plan } from './plan.ts'
 import { isBlocked } from './tasks.ts'
 
@@ -76,6 +78,7 @@ export function buildNodes(
           if (run.now) card.now = run.now
         }
         if (a.prompt) card.prompt = a.prompt
+        if (a.parentTask) card.parentTask = a.parentTask
         agents.set(a.id, card)
         startedIn.set(a.id, e.session)
         nodes.push(card)
@@ -99,14 +102,16 @@ export function buildNodes(
 
 const NEXT_SHOWN = 5
 const DAY_MS = 24 * 60 * 60 * 1000
+const LANES_MS = 15 * 60_000
+const LANES_SHOWN = 8
 
 function historyRow(node: Node): HistoryRow {
   if (node.kind === 'agent') {
     const glyph = { running: '▶', done: '✓', failed: '✗', unknown: '?' }[node.state]
     const tone = ({ running: 'run', done: 'ok', failed: 'fail', unknown: 'dim' } as const)[node.state]
     const state = { running: '', done: '', failed: ' failed', unknown: ' (status unknown)' }[node.state]
-    const result = node.result ? ` → ${node.result}` : ''
-    return { at: node.at, glyph, text: `${node.type} · ${node.model} — ${node.title}${state}${result}`, tone, depth: 0 }
+    const time = elapsed(node.elapsedMs)
+    return { at: node.at, glyph, text: `${node.type} · ${node.model} · ${node.title}${state}${time ? `  ${time}` : ''}`, tone, depth: 0 }
   }
   if (node.kind === 'work') {
     const steps = node.total ? ` ${node.done ?? 0}/${node.total}` : ''
@@ -120,14 +125,14 @@ function historyRow(node: Node): HistoryRow {
 }
 
 // Nodes (oldest first) + this session's task mirror + the active plan → what the pane shows.
-// History is newest first; page 0 is the newest `size` rows; an out-of-range page clamps.
+// History is newest first; page 0 is the newest `size` top-level rows, each with its child rows; an out-of-range page clamps.
 // `now` (ms) lets GOAL, BLOCKED and NOW ignore log entries from an earlier day; history still shows them.
 export function buildPanel(nodes: readonly Node[], tasks: readonly Task[], plan: Plan | null, page: number, size: number, now: number): Panel {
   const latestWork = new Map<string, WorkNode>()
   for (const n of nodes) if (n.kind === 'work') latestWork.set(n.task, n)
   const isFresh = (n: WorkNode) => now - Date.parse(n.at) < DAY_MS
-  // The newest task whose latest entry is still active (an older 'active' entry of a task since done does not count).
-  const activeWork = [...nodes].reverse().find((n): n is WorkNode => n.kind === 'work' && n.status === 'active' && latestWork.get(n.task) === n && isFresh(n))
+  // Tasks whose latest entry is still active, newest first (an older 'active' entry of a task since done does not count).
+  const activeWork = [...nodes].reverse().filter((n): n is WorkNode => n.kind === 'work' && n.status === 'active' && latestWork.get(n.task) === n && isFresh(n))
 
   const open = tasks.filter(t => t.status !== 'completed')
   const waiting = open.filter(t => t.status === 'pending' && isBlocked(t, tasks)) // an in-progress task shows in NOW only
@@ -137,26 +142,45 @@ export function buildPanel(nodes: readonly Node[], tasks: readonly Task[], plan:
     ...[...latestWork.values()].filter(w => w.status === 'blocked' && isFresh(w)).map(w => ({ title: w.title })),
   ]
 
-  const rows = [...nodes].reverse().filter(n => n.kind !== 'session').map(historyRow) // session open/close is bookkeeping, not history
-  const pages = Math.max(1, Math.ceil(rows.length / size))
+  // An agent that ran for a task sits under that task's work row logged last before it; the rest are top-level rows.
+  const children = new Map<Node, AgentNode[]>()
+  const lastSeen = new Map<string, WorkNode>()
+  for (const n of nodes) {
+    if (n.kind === 'work') lastSeen.set(n.task, n)
+    const parent = n.kind === 'agent' && n.parentTask ? lastSeen.get(n.parentTask) : undefined
+    if (n.kind === 'agent' && parent) children.set(parent, [...(children.get(parent) ?? []), n])
+  }
+  const isChild = new Set<Node>([...children.values()].flat())
+  // Newest first; a parent's children follow it, newest first. Session open/close is bookkeeping, not history.
+  const groups = [...nodes].reverse().filter(n => n.kind !== 'session' && !isChild.has(n)).map(n => {
+    const kids = [...(children.get(n) ?? [])].reverse().map((k, i, all): HistoryRow => ({ ...historyRow(k), depth: 1, ...(i === all.length - 1 ? { isLast: true } : {}) }))
+    return [historyRow(n), ...kids]
+  })
+  const pages = Math.max(1, Math.ceil(groups.length / size))
   const clamped = Math.min(Math.max(0, page), pages - 1)
 
+  // A running agent with no live clock (another session's, no end entry) counts only for a day: that session likely died.
+  const nowAgents = nodes.filter(
+    (n): n is AgentNode => n.kind === 'agent' && n.state === 'running' && (n.elapsedMs !== undefined || now - Date.parse(n.at) < DAY_MS),
+  )
   const panel: Panel = {
-    nowWork: [],
-    // A running agent with no live clock (another session's, no end entry) counts only for a day: that session likely died.
-    nowAgents: nodes.filter(
-      (n): n is AgentNode => n.kind === 'agent' && n.state === 'running' && (n.elapsedMs !== undefined || now - Date.parse(n.at) < DAY_MS),
-    ),
+    nowWork: activeWork.map(w => ({ title: w.title, task: w.task, ...(w.total !== undefined ? { done: w.done ?? 0, total: w.total } : {}) })),
+    nowAgents,
     nowTasks: open.filter(t => t.status === 'in_progress'),
     next: ready.slice(0, NEXT_SHOWN),
     nextMore: Math.max(0, ready.length - NEXT_SHOWN),
     blocked,
-    lanes: { lanes: [], from: now, to: now },
-    history: rows.slice(clamped * size, clamped * size + size),
+    // Only the running agents NOW shows draw a running lane (not a dead session's).
+    lanes: {
+      lanes: buildLanes(nodes.filter(n => n.kind !== 'agent' || n.state !== 'running' || nowAgents.includes(n)), now, LANES_MS, LANES_SHOWN),
+      from: now - LANES_MS,
+      to: now,
+    },
+    history: groups.slice(clamped * size, clamped * size + size).flat(),
     page: clamped,
     pages,
   }
-  const goal = (plan && plan.done < plan.total ? plan.title : '') || activeWork?.title // a finished plan is not the goal
+  const goal = (plan && plan.done < plan.total ? plan.title : '') || activeWork[0]?.title // a finished plan is not the goal
   if (goal) panel.goal = goal
   if (plan && plan.done > 0) {
     const group = currentGroup(plan)

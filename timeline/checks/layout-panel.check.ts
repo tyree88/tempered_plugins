@@ -68,11 +68,53 @@ assert.equal(stale.history.length, 1)
 // failed and unknown agents say so in history
 const ended = buildPanel([agent('f', 'failed', '2026-10-07T10:00:00Z'), agent('u', 'unknown', '2026-10-07T10:01:00Z')] as never[], [], null, 0, 30, now)
 assert.deepEqual(ended.history.map(r => [r.glyph, r.tone, r.text]), [
-  ['?', 'dim', 'general-purpose · sonnet — agent u (status unknown)'],
-  ['✗', 'fail', 'general-purpose · sonnet — agent f failed'],
+  ['?', 'dim', 'general-purpose · sonnet · agent u (status unknown)'],
+  ['✗', 'fail', 'general-purpose · sonnet · agent f failed'],
 ])
 // session open/close rows are not history, so a fresh session shows the empty state
 const empty = buildPanel([{ kind: 'session', at: '2026-10-07T11:00:00Z', title: 'session abc opened' }] as never[], [], null, 0, 30, now)
 assert.equal(empty.history.length, 0)
 assert.equal(empty.goal, undefined)
+
+// v2: logged work in NOW, agents grouped under the task they ran for, lanes for the last 15 minutes
+const w = (at: string, title: string, task: string, status: string, steps = {}) => ({ kind: 'work', at, title, task, tag: 1, status, facts: [], ...steps })
+const kid = (id: string, state: string, at: string, parentTask?: string, elapsedMs?: number) => ({
+  ...agent(id, state, at), ...(parentTask ? { parentTask } : {}), ...(elapsedMs !== undefined ? { elapsedMs } : {}),
+})
+const grouped = [
+  w('2026-10-05T09:00:00Z', 'Old active', 'old', 'active'), // an earlier day: history only
+  w('2026-10-07T11:40:00Z', 'Explore feed code', 'feed', 'active', { done: 2, total: 6 }),
+  kid('k1', 'done', '2026-10-07T11:41:00Z', 'feed', 65_000),
+  w('2026-10-07T11:42:00Z', 'Write docs', 'docs', 'done'),
+  kid('k2', 'failed', '2026-10-07T11:43:00Z', 'feed', 5_000),
+  kid('k4', 'running', '2026-10-07T11:44:00Z', 'gone'), // its task has no work row: top level
+  w('2026-10-07T11:45:00Z', 'Run tests', 'tests', 'active'),
+  kid('k3', 'running', '2026-10-07T11:55:00Z'), // no task: top level
+] as never[]
+const g = buildPanel(grouped, [], null, 0, 30, now)
+assert.deepEqual(g.nowWork, [{ title: 'Run tests', task: 'tests' }, { title: 'Explore feed code', task: 'feed', done: 2, total: 6 }])
+assert.deepEqual(g.history.map(r => [r.depth, r.isLast ?? false, r.text]), [
+  [0, false, 'general-purpose · sonnet · agent k3'],
+  [0, false, 'Run tests'],
+  [0, false, 'general-purpose · sonnet · agent k4'],
+  [0, false, 'Write docs'],
+  [0, false, 'Explore feed code 2/6'],
+  [1, false, 'general-purpose · sonnet · agent k2 failed  5s'], // children newest first, no result
+  [1, true, 'general-purpose · sonnet · agent k1  1m05s'],
+  [0, false, 'Old active'],
+])
+// paging counts top-level rows; children travel with their parent
+const g0 = buildPanel(grouped, [], null, 0, 5, now)
+assert.equal(g0.pages, 2)
+assert.equal(g0.history.length, 7)
+assert.equal(g0.history.at(-1)?.isLast, true)
+assert.deepEqual(buildPanel(grouped, [], null, 1, 5, now).history.map(r => r.text), ['Old active'])
+// lanes: the two running agents overlap the last 15 minutes; the ended ones do not
+assert.deepEqual(g.lanes.lanes.map(l => l.state), ['running', 'running'])
+assert.deepEqual([g.lanes.from, g.lanes.to], [now - 15 * 60_000, now])
+// a running agent from a dead session (no live clock, days old) is not in NOW, so not a lane either
+assert.deepEqual(stale.lanes.lanes, [])
+// done work is not in NOW; neither is active work from an earlier day
+assert.deepEqual(buildPanel(grouped.slice(0, 4), [], null, 0, 30, now).nowWork, [{ title: 'Explore feed code', task: 'feed', done: 2, total: 6 }])
+assert.deepEqual(buildPanel(abb.concat(w('2026-10-07T10:05:00Z', 'Task A', 'a', 'done') as never), [], null, 0, 30, now).nowWork, [])
 console.log('layout-panel: ok')
