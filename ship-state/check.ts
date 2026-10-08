@@ -1,6 +1,6 @@
 // Self-check for the pure logic. Run: node check.ts  (Node 23+ strips types)
 import assert from 'node:assert/strict'
-import { isPending, lastCd, segments, summarize } from './hooks/lib.ts'
+import { COMMIT_PROMPT, PUSH_PROMPT, action, isPending, lastCd, segments, summarize } from './hooks/lib.ts'
 
 assert.equal(lastCd('cd /a/b && git status', '/x'), '/a/b')
 assert.equal(lastCd('git log; cd "/a b/c" && ls', '/x'), '/a b/c')
@@ -40,4 +40,12 @@ assert.equal(
 )
 assert.equal(isPending(snap), true)
 assert.equal(isPending({ ...snap, ci: { ...snap.ci, pending: 0 } }), false)
+// action: commit while dirty (age after 5 min), push while ahead, nothing otherwise
+assert.deepEqual(action({ ...snap, dirty: 1, dirtySince: now - 60_000 }, now), { label: 'commit 1 file', prompt: COMMIT_PROMPT })
+assert.deepEqual(action({ ...snap, dirty: 3, dirtySince: now - 4 * 60_000 }, now), { label: 'commit 3 files', prompt: COMMIT_PROMPT })
+assert.deepEqual(action({ ...snap, dirty: 3, dirtySince: now - 24 * 60_000 }, now), { label: 'commit 3 files · 24m ago', prompt: COMMIT_PROMPT })
+assert.deepEqual(action({ ...snap, dirty: 3 }, now), { label: 'commit 3 files', prompt: COMMIT_PROMPT })
+assert.deepEqual(action({ ...snap, dirty: 0, ahead: 2 }, now), { label: 'push ↑2', prompt: PUSH_PROMPT })
+assert.equal(action({ ...snap, dirty: 0, ahead: 0 }, now), undefined)
+assert.equal(action({ ...snap, dirty: 0, ahead: null }, now), undefined)
 console.log('ship-state: ok')

@@ -37,8 +37,8 @@ export function summarize(runs: Run[], statuses: Status[]): Checks {
 export const isPending = (s: Snap | null) =>
   !!s && ((s.ci?.pending ?? 0) > 0 || WAIT.has(s.prod?.state ?? ''))
 
-const ago = (iso: string, now: number) => {
-  const m = Math.max(0, Math.round((now - Date.parse(iso)) / 60_000))
+const ago = (at: number, now: number) => {
+  const m = Math.max(0, Math.round((now - at) / 60_000))
   return m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`
 }
 
@@ -57,10 +57,26 @@ export function segments(s: Snap, now: number): Seg[] {
   if (s.prod) {
     const { sha, state, at } = s.prod
     const who = sha === s.head ? 'prod = HEAD' : `prod ${sha.slice(0, 7)}`
-    if (state === 'success') segs.push({ text: `${who} ✓ ${ago(at, now)}`, tone: 'ok' })
+    if (state === 'success') segs.push({ text: `${who} ✓ ${ago(Date.parse(at), now)}`, tone: 'ok' })
     else if (FAIL.has(state)) segs.push({ text: `${who} ✗ ${state}`, tone: 'bad' })
     else if (WAIT.has(state)) segs.push({ text: `${who} ⏳ deploying`, tone: 'warn' })
     else segs.push({ text: `${who} ${state}`, tone: 'dim' })
   }
   return segs
+}
+
+export type Action = { label: string; prompt: string }
+
+export const COMMIT_PROMPT = 'Commit the working tree changes with a sensible message.'
+export const PUSH_PROMPT = 'Push the branch.'
+const AGE_AFTER = 5 * 60_000 // show how long the tree has been dirty once it is this old
+
+// The band's one-key action: commit while the tree is dirty; else push while commits wait on an upstream; else none.
+export function action(s: Snap, now: number): Action | undefined {
+  if (s.dirty) {
+    const age = s.dirtySince !== undefined && now - s.dirtySince >= AGE_AFTER ? ` · ${ago(s.dirtySince, now)}` : ''
+    return { label: `commit ${s.dirty} ${s.dirty === 1 ? 'file' : 'files'}${age}`, prompt: COMMIT_PROMPT }
+  }
+  if (s.ahead) return { label: `push ↑${s.ahead}`, prompt: PUSH_PROMPT }
+  return undefined
 }
