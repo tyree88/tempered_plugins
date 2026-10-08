@@ -106,17 +106,17 @@ function historyRow(node: Node): HistoryRow {
     const tone = ({ running: 'run', done: 'ok', failed: 'fail', unknown: 'dim' } as const)[node.state]
     const state = { running: '', done: '', failed: ' failed', unknown: ' (status unknown)' }[node.state]
     const result = node.result ? ` → ${node.result}` : ''
-    return { at: node.at, glyph, text: `${node.type} · ${node.model} — ${node.title}${state}${result}`, tone }
+    return { at: node.at, glyph, text: `${node.type} · ${node.model} — ${node.title}${state}${result}`, tone, depth: 0 }
   }
   if (node.kind === 'work') {
     const steps = node.total ? ` ${node.done ?? 0}/${node.total}` : ''
     const fact = node.facts.length ? ` ↳ ${node.facts[node.facts.length - 1]}` : ''
     const glyph = node.status === 'done' ? '✓' : node.status === 'blocked' ? '⚠' : '▶'
     const tone = node.status === 'done' ? 'ok' : node.status === 'blocked' ? 'warn' : 'run'
-    return { at: node.at, glyph, text: `${node.title}${steps}${fact}`, tone }
+    return { at: node.at, glyph, text: `${node.title}${steps}${fact}`, tone, depth: 0 }
   }
-  if (node.kind === 'talk') return { at: node.at, glyph: '💬', text: node.title, tone: 'normal' }
-  return { at: node.at, glyph: '↳', text: node.title, tone: 'dim' }
+  if (node.kind === 'talk') return { at: node.at, glyph: '💬', text: node.title, tone: 'normal', depth: 0 }
+  return { at: node.at, glyph: '↳', text: node.title, tone: 'dim', depth: 0 }
 }
 
 // Nodes (oldest first) + this session's task mirror + the active plan → what the pane shows.
@@ -142,6 +142,7 @@ export function buildPanel(nodes: readonly Node[], tasks: readonly Task[], plan:
   const clamped = Math.min(Math.max(0, page), pages - 1)
 
   const panel: Panel = {
+    nowWork: [],
     // A running agent with no live clock (another session's, no end entry) counts only for a day: that session likely died.
     nowAgents: nodes.filter(
       (n): n is AgentNode => n.kind === 'agent' && n.state === 'running' && (n.elapsedMs !== undefined || now - Date.parse(n.at) < DAY_MS),
@@ -150,6 +151,7 @@ export function buildPanel(nodes: readonly Node[], tasks: readonly Task[], plan:
     next: ready.slice(0, NEXT_SHOWN),
     nextMore: Math.max(0, ready.length - NEXT_SHOWN),
     blocked,
+    lanes: { lanes: [], from: now, to: now },
     history: rows.slice(clamped * size, clamped * size + size),
     page: clamped,
     pages,
