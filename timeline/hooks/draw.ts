@@ -20,13 +20,13 @@ export function bar(done: number, total: number, width: number): string {
 export const fit = (text: string, width: number) =>
   text.length > width ? `${text.slice(0, Math.max(0, width - 1)).replace(/[\uD800-\uDBFF]$/, '')}…` : text
 
-const elapsed = (ms?: number) => {
+export const elapsed = (ms?: number) => {
   if (typeof ms !== 'number' || !Number.isFinite(ms)) return ''
   const s = Math.round(ms / 1000)
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`
 }
 
-const tokens = (n?: number) => (typeof n !== 'number' || !Number.isFinite(n) ? '' : n >= 1000 ? `${Math.round(n / 1000)}k tokens` : `${n} tokens`)
+export const tokens = (n?: number) => (typeof n !== 'number' || !Number.isFinite(n) ? '' : n >= 1000 ? `${Math.round(n / 1000)}k tokens` : `${n} tokens`)
 
 // The lines under a card's title, shared by the terminal and the SVG.
 export function cardLines(node: WorkNode | AgentNode): string[] {

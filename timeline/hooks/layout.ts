@@ -1,4 +1,6 @@
-import type { AgentNode, Entry, LiveAgent, Node, WorkNode } from '../types'
+import type { AgentNode, Entry, HistoryRow, LiveAgent, Node, Panel, Task, WorkNode } from '../types'
+import { currentGroup, type Plan } from './plan.ts'
+import { isBlocked } from './tasks.ts'
 
 // Entries (oldest first) → nodes on the line. `session` is this session's id; `live` holds its running agents.
 export function buildNodes(
@@ -116,4 +118,63 @@ export function paginate(nodes: readonly Node[], page: number, size: number): { 
   const clamped = Math.min(Math.max(0, page), pages - 1)
   const end = nodes.length - clamped * size
   return { nodes: nodes.slice(Math.max(0, end - size), end), page: clamped, pages }
+}
+
+const NEXT_SHOWN = 5
+
+function historyRow(node: Node): HistoryRow {
+  if (node.kind === 'agent') {
+    const glyph = { running: '▶', done: '✓', failed: '⚠', unknown: '·' }[node.state]
+    const tone = ({ running: 'run', done: 'ok', failed: 'warn', unknown: 'dim' } as const)[node.state]
+    const result = node.result ? ` → ${node.result}` : ''
+    return { at: node.at, glyph, text: `${node.type} · ${node.model} — ${node.title}${result}`, tone }
+  }
+  if (node.kind === 'work') {
+    const steps = node.total ? ` ${node.done ?? 0}/${node.total}` : ''
+    const fact = node.facts.length ? ` ↳ ${node.facts[node.facts.length - 1]}` : ''
+    const glyph = node.status === 'done' ? '✓' : node.status === 'blocked' ? '⚠' : '▶'
+    const tone = node.status === 'done' ? 'ok' : node.status === 'blocked' ? 'warn' : 'run'
+    return { at: node.at, glyph, text: `${node.title}${steps}${fact}`, tone }
+  }
+  if (node.kind === 'talk') return { at: node.at, glyph: '💬', text: node.title, tone: 'normal' }
+  if (node.kind === 'session') return { at: node.at, glyph: '—', text: node.title, tone: 'dim' }
+  return { at: node.at, glyph: '↳', text: node.title, tone: 'dim' }
+}
+
+// Nodes (oldest first) + this session's task mirror + the active plan → what the pane shows.
+// History is newest first; page 0 is the newest `size` rows; an out-of-range page clamps.
+export function buildPanel(nodes: readonly Node[], tasks: readonly Task[], plan: Plan | null, page: number, size: number): Panel {
+  const latestWork = new Map<string, WorkNode>()
+  for (const n of nodes) if (n.kind === 'work') latestWork.set(n.task, n)
+  const activeWork = [...nodes].reverse().find((n): n is WorkNode => n.kind === 'work' && n.status === 'active')
+
+  const open = tasks.filter(t => t.status !== 'completed')
+  const waiting = open.filter(t => isBlocked(t, tasks))
+  const ready = open.filter(t => t.status === 'pending' && !isBlocked(t, tasks))
+  const blocked = [
+    ...waiting.map(t => ({ title: t.subject, waitsOn: t.blockedBy.find(id => tasks.some(x => x.id === id && x.status !== 'completed')) })),
+    ...[...latestWork.values()].filter(w => w.status === 'blocked').map(w => ({ title: w.title })),
+  ]
+
+  const rows = [...nodes].reverse().map(historyRow)
+  const pages = Math.max(1, Math.ceil(rows.length / size))
+  const clamped = Math.min(Math.max(0, page), pages - 1)
+
+  const panel: Panel = {
+    nowAgents: nodes.filter((n): n is AgentNode => n.kind === 'agent' && n.state === 'running'),
+    nowTasks: open.filter(t => t.status === 'in_progress'),
+    next: ready.slice(0, NEXT_SHOWN),
+    nextMore: Math.max(0, ready.length - NEXT_SHOWN),
+    blocked,
+    history: rows.slice(clamped * size, clamped * size + size),
+    page: clamped,
+    pages,
+  }
+  const goal = plan?.title || activeWork?.title
+  if (goal) panel.goal = goal
+  if (plan && plan.done > 0) {
+    const group = currentGroup(plan)
+    panel.plan = { ...(group ? { group } : {}), done: plan.done, total: plan.total }
+  }
+  return panel
 }
