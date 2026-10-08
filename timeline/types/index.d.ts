@@ -83,8 +83,26 @@ export type View = { header: string; nodes: Node[]; page: number; pages: number;
   fade: boolean // newest node changed since the last draw: animate it
 }
 
+export type TaskStatus = 'pending' | 'in_progress' | 'completed'
+export type Task = { id: string; subject: string; status: TaskStatus; blockedBy: string[] }
+
+export type HistoryRow = { at: string; glyph: string; text: string; tone: 'normal' | 'dim' | 'ok' | 'warn' | 'run' }
+
+export type Panel = {
+  goal?: string
+  plan?: { group?: string; done: number; total: number }
+  nowAgents: AgentNode[]
+  nowTasks: Task[]
+  next: Task[]
+  nextMore: number
+  blocked: { title: string; waitsOn?: string }[]
+  history: HistoryRow[]
+  page: number
+  pages: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
-    timeline: { view: View | null }
+    timeline: { view: View | null; tasks: Task[] }
   }
 }
