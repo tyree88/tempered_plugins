@@ -571,7 +571,7 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const v = await read($, view)
     const ui = $.ui.resolve(e)
-    const { Text } = ui
+    const { Box, Text, Button } = ui
     // A view stored by the code before this one (no panel) reads as not drawn yet: the next redraw replaces it.
     if (!v?.panel) return <Text dimColor>Timeline loading…</Text>
 
@@ -580,6 +580,7 @@ export const register: Register = on => {
       await redraw($)
     }
     // bodyColumns is the pane's own width (a docked pane is narrower than the screen viewport).
-    return drawPane(ui, v, e.props.bodyColumns, turn)
+    // The terminal's table names Svg too but draws it as nothing: there the lanes go as text.
+    return drawPane(e.surface === 'terminal' ? { Box, Text, Button } : ui, v, e.props.bodyColumns, turn)
   })
 }

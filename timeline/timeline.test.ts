@@ -18,6 +18,12 @@ const OTHER = [
 ]
 const OTHER_JSONL = `${OTHER.map(e => JSON.stringify(e)).join('\n')}\n`
 
+// Another session's agent that ran 30 minutes ago for one minute: history, not a lane.
+const ENDED_JSONL = `${[
+  { v: 1, id: 'old-1', at: iso(30), session: 'other', kind: 'agent', title: 'Old run', agent: { id: 'old', phase: 'start', type: 'Explore', model: 'claude-haiku-4-5' } },
+  { v: 1, id: 'old-2', at: iso(29), session: 'other', kind: 'agent', title: 'agent end', agent: { id: 'old', phase: 'end', status: 'done', durationMs: 60_000 } },
+].map(e => JSON.stringify(e)).join('\n')}\n`
+
 // What TaskList answers: 1 in progress, 7 ready, 1 waiting on #1.
 const LISTED = [
   { id: '1', subject: `Build the pane: ${LONG}`, status: 'in_progress', blockedBy: [] },
@@ -183,6 +189,39 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.find({ key: 'older' })).toBeUndefined()
     await ui.press({ key: 'newer' })
     expect(await ui.find({ key: 'older' })).toBeDefined()
+  })
+
+  test(`logged work in NOW, agents under their task, lanes (${surface})`, async ($, on) => {
+    const { clock } = engine(on)
+    await start($, clock)
+    await call($, { tool: 'mcp__timeline__log', kind: 'work', title: 'Explore feed code', task: 'feed', status: 'active', done: 2, total: 6 })
+    await spawn($, 'Map the feed module')
+    await clock.settle()
+    const ui = await mount($, 100)
+    // NOW: the logged task with its progress bar
+    expect(await ui.find({ type: 'Text', text: '▶ Explore feed code' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^█+░+ 2\/6$/ })).toBeDefined()
+    // HISTORY: the agent is a child row under its task's work row
+    expect(await ui.find({ type: 'Text', text: /^ {2}└ general-purpose · claude-sonnet-5 · Map the feed module/ })).toBeDefined()
+    expect(await ui.findAll({ type: 'Text', text: HISTORY_ROW })).toHaveLength(1) // the work row; the agent is not top-level
+    // AGENTS: one lane; an SVG on the desktop, a text bar on the terminal
+    expect(await ui.find({ key: 'lanes' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'AGENTS · last 15 min' })).toBeDefined()
+    if (surface === 'desktop') {
+      expect(await ui.find({ type: 'Svg' })).toBeDefined()
+    } else {
+      expect(await ui.find({ type: 'Svg' }), 'no svg').toBeUndefined()
+      expect(await ui.find({ type: 'Text', text: /^general-p ·*▓+$/ }), 'lane text').toBeDefined()
+    }
+    expect(await ui.find({ type: 'Text', text: 'now' })).toBeDefined() // the axis
+  })
+
+  test(`no lanes when every agent ended over 15 minutes ago (${surface})`, async ($, on) => {
+    const { clock } = engine(on, { 'other.jsonl': ENDED_JSONL })
+    await start($, clock)
+    const ui = await mount($, 100)
+    expect(await ui.find({ type: 'Text', text: /Explore · claude-haiku-4-5 · Old run {2}1m00s$/ })).toBeDefined()
+    expect(await ui.find({ key: 'lanes' })).toBeUndefined()
   })
 
   test(`empty state with no tasks and no entries (${surface})`, async ($, on) => {

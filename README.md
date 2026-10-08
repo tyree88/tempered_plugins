@@ -96,7 +96,7 @@ The band of ship-state stacks with the bands of other plugins, such as followups
    - Claude starts a subagent.
 3. Read the pane from top to bottom. The table below lists the zones.
 4. Look for `⚠ inherited model` on a subagent in NOW. This mark means that no model was set for the subagent, so it uses the model of the main session.
-5. If HISTORY has more than 30 lines, use `◀ older` and `newer ▶` to move between pages.
+5. If HISTORY has more than 30 entries, use `◀ older` and `newer ▶` to move between pages.
 
 The pane uses the text and colors of the app, on the desktop and in the terminal. It fits any width. At 70 columns or more, NEXT and BLOCKED sit side by side. At fewer columns, they stack.
 
@@ -105,10 +105,11 @@ The pane uses the text and colors of the app, on the desktop and in the terminal
 | Header | The repo and the branch. |
 | `GOAL` | The title of the plan while the plan has unticked boxes. Otherwise, the latest active task that Claude logged in the last 24 hours. |
 | `PLAN` | A progress bar, the current section of the plan file, and the steps done out of the total. It shows only when at least 1 box in the plan is ticked. |
-| `NOW` | The subagents that run now and the tasks that Claude has in progress. A subagent shows its title, type, model, elapsed time, tool calls and tokens. It also shows `now:` (the current tool) and `next:` (the next step) when they are known. Subagents from another session that started more than 24 hours ago do not show. |
+| `NOW` | The tasks that Claude logged as in progress in the last 24 hours, with a progress bar when the task has steps. Then the tasks that Claude has in progress, and the subagents that run now. A subagent shows its title, type, model, elapsed time, tool calls and tokens. It also shows `now:` (the current tool) and `next:` (the next step) when they are known. Subagents from another session that started more than 24 hours ago do not show. |
 | `NEXT` | Up to 5 pending tasks that wait on nothing. Then `+N more`. |
 | `BLOCKED` | Pending tasks that wait on an unfinished task (`waits on #N`). Also the tasks that Claude logged as blocked in the last 24 hours. |
-| `HISTORY` | One line for each entry, newest first: the time, a mark, and the text. Each page has 30 lines. |
+| `AGENTS · last 15 min` | One bar for each subagent run in the last 15 minutes, up to 8. The bar starts when the subagent starts and stops when it ends. The colors are blue for running, green for done, red for failed and gray for status unknown. The terminal draws the bars with block characters. Below the bars are the start time, the middle time and `now`. |
+| `HISTORY` | One line for each entry, newest first: the time, a mark, and the text. Each subagent shows below the task that it ran for, on a line that starts with `├` or `└`. A subagent that ran for no logged task has a line of its own. A subagent line shows the type, the model, the title and the run time. History does not show the results of subagents. Each page has 30 entries, and each entry keeps its subagent lines. |
 
 The marks in HISTORY are:
 
@@ -246,7 +247,7 @@ node lessons/checks/detect.check.ts
 bash timeline/checks/run.sh
 ```
 
-To run the behavior test of timeline, run `claude plugin test timeline`. It runs 14 cases on the terminal and desktop surfaces.
+To run the behavior test of timeline, run `claude plugin test timeline`. It runs 18 cases on the terminal and desktop surfaces.
 
 To run the behavior test of followups, run `claude plugin test followups`. It runs 8 cases on the terminal and desktop surfaces.
 

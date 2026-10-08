@@ -40,6 +40,7 @@ assert.equal(track(text[0]).indexOf('█'), 0) // started before the window: cli
 assert.ok(track(text[2]).includes('▒'))
 assert.ok(track(text[3]).includes('░')) // a zero-length run still shows one cell
 assert.deepEqual(lanesText([], from, now, 30), [])
+assert.ok(lanesText([{ label: 'new', start: now, end: now, state: 'running' }], from, now, 30)[0]?.endsWith('▓')) // just spawned: the last cell
 
 const svg = lanesSvg(lanes, from, now, 420)
 assert.ok(svg.startsWith('<svg'))

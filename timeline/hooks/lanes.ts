@@ -27,7 +27,7 @@ const x = (t: number, from: number, to: number, width: number) =>
 export function lanesText(lanes: readonly Lane[], from: number, to: number, cells: number): string[] {
   const width = Math.max(10, cells)
   return lanes.map(l => {
-    const a = x(l.start, from, to, width)
+    const a = Math.min(width - 1, x(l.start, from, to, width)) // a run that starts now still gets the last cell
     const b = Math.max(a + 1, x(l.end, from, to, width))
     const track = '·'.repeat(a) + GLYPH[l.state].repeat(Math.min(width, b) - a) + '·'.repeat(Math.max(0, width - b))
     return `${l.label.slice(0, LABEL_CELLS).padEnd(LABEL_CELLS)} ${track}`
