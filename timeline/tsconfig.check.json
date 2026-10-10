@@ -10,6 +10,7 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "jsx": "react",
     "jsxFactory": "h",
@@ -19,6 +20,7 @@
     "../.claude/types/claude-code.d.ts",
     "../ship-state/types/index.d.ts",
     "hooks",
-    "types"
+    "types",
+    "timeline.test.ts"
   ]
 }
