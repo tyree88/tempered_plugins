@@ -137,11 +137,12 @@ How timeline works:
 
 - The plugin adds a tool, `mcp__timeline__log`. It also adds an instruction of about 100 tokens that tells Claude when to log. Claude logs once for each change of direction, and once at the start, each step, the end, or a block of each task.
 - Each subagent gets a shorter instruction to log its own progress.
+- The instruction tells Claude to write each `title`, `how` and `next` in Simplified Technical English: one short sentence, active voice, no filler.
 - The log tool needs no permission prompt.
 - timeline stores the history per repo in `~/.claude/timelines/<repo>-<hash>/`. Each session writes only its own files. Worktrees of a repo share one timeline.
 - If 2 sessions work in the same repo, each pane shows the entries of the other session within 10 seconds.
 
-Usage cost: each logged entry costs approximately 40 to 80 output tokens. The instruction costs approximately 100 tokens in each session.
+Usage cost: each logged entry costs approximately 40 to 80 output tokens. The instruction costs approximately 140 tokens in each session.
 
 Privacy: the timeline files contain Claude's one-line summaries, the first 2000 characters of each subagent prompt, and commit subjects. The files stay on your computer.
 
