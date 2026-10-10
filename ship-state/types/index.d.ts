@@ -5,6 +5,7 @@ export type Snap = {
   branch: string
   head: string
   dirty: number
+  dirtySince?: number // ms since epoch when `dirty` last went from 0 to > 0; absent while clean
   ahead: number | null
   behind: number | null
   pr?: { number: number; state: string }

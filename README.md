@@ -8,7 +8,7 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 
 | Folder | Tool | What it does |
 |---|---|---|
-| `ship-state/` | Claude Code | Shows the git, pull request, CI and deploy state of the current repo in one line above the prompt. |
+| `ship-state/` | Claude Code | Shows the git, pull request, CI and deploy state of the current repo in one line above the prompt. Ends the line with a button to commit or push. |
 | `timeline/` | Claude Code | Shows a side pane with what is running now, what is next, and what is blocked. The history of the work is below. |
 | `limit-resume/` | Claude Code | Shows your usage limits and continues a turn after a rate limit resets. |
 | `followups/` | Claude Code | Shows 4 options for your next prompt above the prompt box after each answer. You press 1 to 4 to put one in the box. |
@@ -18,7 +18,7 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 
 ## Why these plugins exist
 
-**ship-state.** During a coding session, you often need to know if your work is pushed, if CI passed, and if production has the change. Without this plugin, you ask Claude, and Claude runs `git` and `gh` commands to find out. Each check costs a model turn. ship-state shows the answer on screen at all times and makes no model calls.
+**ship-state.** During a coding session, you often need to know if your work is pushed, if CI passed, and if production has the change. Without this plugin, you ask Claude, and Claude runs `git` and `gh` commands to find out. Each check costs a model turn. ship-state shows the answer on screen at all times and makes no model calls. When the tree has uncommitted files, the line ends with a button. One key sends the commit prompt. You do not type it.
 
 **timeline.** Long work with many steps and many subagents is hard to follow. Without a record, you ask "what is running now?", "what is next?" and "what is blocked?" many times. You also cannot see which model each subagent uses. timeline answers these 3 questions at a glance in a side pane. The history of the work is below the answers. timeline keeps one record per repo across sessions.
 
@@ -70,7 +70,7 @@ ship-state needs no action. It starts with each session.
 2. Read the state from left to right:
 
 ```
-app ⎇ feat/waitlist  ·  3 dirty  ·  ↑2 ↓0  ·  PR #312  ·  CI ⏳ 4/5  ·  prod = HEAD ✓ 2h ago
+app ⎇ feat/waitlist  ·  3 dirty  ·  ↑2 ↓0  ·  PR #312  ·  CI ⏳ 4/5  ·  prod = HEAD ✓ 2h ago  ·  0: commit 3 files
 ```
 
 | Part | Meaning |
@@ -80,12 +80,15 @@ app ⎇ feat/waitlist  ·  3 dirty  ·  ↑2 ↓0  ·  PR #312  ·  CI ⏳ 4/5  
 | `PR #312` | The branch has open pull request 312. |
 | `CI ⏳ 4/5` | 4 of 5 CI checks are complete. |
 | `prod = HEAD ✓` | Production runs the current commit. |
+| `0: commit 3 files` | A button. Press `0` in an empty prompt box, or click it. ship-state sends "Commit the working tree changes with a sensible message." to Claude. After 5 minutes, the button also shows how long the files have waited, for example `· 24m ago`. The key `0` works only when the prompt box is empty. If you type `0` as the first character of a message, it presses the button and sends the commit prompt. Type a space first to start a message with `0`. |
 
 3. After a push or a merge, wait for the toast. ship-state shows "CI ✓", "CI ✗" with the failed check names, or "Live on prod".
+4. When the tree is clean and commits are not pushed, the button reads `push ↑2`. It has no key. Click it, or press `ctrl+x tab` to focus the band, press Tab or an arrow key to move to `push ↑2`, then press Enter. It sends "Push the branch." to Claude. The button does not show while Claude works. After you press it, the button stays hidden until Claude's turn ends, or for 60 seconds at most.
 
 ship-state follows Claude when Claude changes to another repo or worktree. It reads local git data every 20 seconds. It reads GitHub data every 5 minutes. After a push or merge, it reads GitHub data every 20 seconds for 10 minutes.
 
 The band of ship-state stacks with the bands of other plugins, such as followups.
+followups uses the keys 1 to 4. ship-state uses the key 0 for commit only.
 
 ## How to use timeline
 
@@ -246,6 +249,8 @@ node followups/checks/ask.check.ts
 node lessons/checks/detect.check.ts
 bash timeline/checks/run.sh
 ```
+
+To run the behavior test of ship-state, run `claude plugin test ship-state`. It runs 16 cases on the terminal and desktop surfaces.
 
 To run the behavior test of timeline, run `claude plugin test timeline`. It runs 18 cases on the terminal and desktop surfaces.
 

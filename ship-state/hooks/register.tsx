@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Engine, Register } from 'claude-code'
 
 import type { Snap } from '../types'
-import { isPending, lastCd, segments, summarize } from './lib'
+import { action, isPending, lastCd, segments, summarize } from './lib'
 
 const snap = atom({ plugin: 'ship-state', key: 'snap' } as const, null)
 
@@ -11,6 +11,7 @@ const REMOTE_EVERY = 5 * 60_000
 const WATCH = 10 * 60_000 // after a push/merge, poll remote fast for this long
 const PUSH = /\bgit\s+push\b|\bgh\s+pr\s+(merge|create)\b|\bvercel\b.*--prod/
 const TONE = { dim: undefined, ok: 'green', warn: 'yellow', bad: 'red' } as const
+const SENT_FOR = 60_000 // after a press, hide the button until the turn completes, or this long if no turn comes
 
 const parse = (text: string | undefined) => {
   try {
@@ -28,6 +29,7 @@ const st = {
   remoteAt: 0,
   watchUntil: 0,
   isBusy: false,
+  sentAt: 0, // ms of the last button press; 0 when none pending
   seen: { ciPending: '', prod: '' },
 }
 
@@ -59,6 +61,18 @@ const notify = ($: Engine, s: Snap) => {
   st.seen.prod = key
 }
 
+// A press of the band button: hide it, then submit the prompt as the person's own words. A refused submit is ignored.
+const press = async ($: Engine, prompt: string) => {
+  st.sentAt = await $.clock.now()
+  await update($, snap, s => (s ? { ...s } : s)) // a new version redraws the band without the button
+  try {
+    await $.prompt.submit({ text: prompt, asUser: true })
+  } catch {
+    st.sentAt = 0 // nothing was queued: show the button again
+    await update($, snap, s => (s ? { ...s } : s))
+  }
+}
+
 const refresh = async ($: Engine, wantRemote: boolean) => {
   const d = st.dir // a `cd` can move `dir` mid-refresh; this snapshot stays on one repo
   if (st.isBusy || !d) return
@@ -76,9 +90,13 @@ const refresh = async ($: Engine, wantRemote: boolean) => {
     const dirty = ((await git('status', '--porcelain')) ?? '').split('\n').filter(Boolean).length
     const counts = await git('rev-list', '--left-right', '--count', '@{u}...HEAD')
     const [behind, ahead] = counts ? counts.split(/\s+/).map(Number) : [null, null]
-    const s: Snap = { ...(st.cur?.dir === d ? st.cur : {}), dir: d, branch, head, dirty, ahead, behind }
-
     const now = await $.clock.now()
+    // After a hot reload `st.cur` is null; the persisted snapshot keeps `dirtySince` so the age does not restart.
+    const kept = st.cur ?? (await read($, snap))
+    const prev = kept?.dir === d ? kept : undefined
+    const s: Snap = { ...prev, dir: d, branch, head, dirty, ahead, behind }
+    if (dirty) s.dirtySince = prev?.dirtySince ?? now
+    else delete s.dirtySince
     if (wantRemote || isPending(st.cur) || now < st.watchUntil || now - st.remoteAt > REMOTE_EVERY) {
       st.remoteAt = now
       const upstream = await git('rev-parse', '@{u}')
@@ -137,7 +155,10 @@ export const register: Register = on => {
   })
 
   on('turn.complete', ($, e, next) => {
-    if (!e.agentId) void refresh($, false)
+    if (!e.agentId) {
+      st.sentAt = 0
+      void refresh($, false)
+    }
     return next(e)
   })
 
@@ -147,8 +168,9 @@ export const register: Register = on => {
     const s = await read($, snap)
     if (!s || e.props.hasSurvey) return beneath
 
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const now = await $.clock.now()
+    const act = e.props.isWorking || now - st.sentAt < SENT_FOR ? undefined : action(s, now)
 
     return (
       <Box flexDirection="column">
@@ -159,6 +181,12 @@ export const register: Register = on => {
               {seg.text}
             </Text>
           ))}
+          {act && (
+            <Text key="sep" dimColor>
+              {'  ·  '}
+            </Text>
+          )}
+          {act && <Button key="act" hotkey={act.hotkey} plain dimColor label={act.label} onPress={() => void press($, act.prompt)} />}
         </Box>
         {beneath}
       </Box>
