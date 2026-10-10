@@ -30,7 +30,7 @@ assert.deepEqual(card, {
 assert.deepEqual(ag1, {
   kind: 'agent', at: at(4), id: 'ag1', title: 'lobby layout', depth: 1, type: 'Explore', model: 'claude-haiku-4-5',
   isPinned: true, isBackground: false, state: 'done', tools: 14, elapsedMs: 400000, tokens: 38000,
-  result: '3 strings rewritten', next: 'wire route', done: 2, total: 4,
+  result: '3 strings rewritten', next: 'wire route', done: 2, total: 4, parentTask: 'lobby',
 })
 assert.deepEqual(ag2, {
   kind: 'agent', at: at(6), id: 'ag2', title: 'nested', depth: 2, type: 'general-purpose', model: 'claude-opus-5-5',

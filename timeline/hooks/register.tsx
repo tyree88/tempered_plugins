@@ -1,18 +1,24 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Engine, Register } from 'claude-code'
 
-import type { Entry, LiveAgent, View } from '../types'
-import { renderSvg, renderText } from './draw'
-import { buildNodes, paginate, summarize } from './layout'
+import type { Entry, LiveAgent, Task, View } from '../types'
+import { buildNodes, buildPanel } from './layout'
 import { ciFact, clip, factsFromBash, folderName, fromLog, lastCd, mainArg, mergeEntries, parseJsonl, repoRoot, toJsonl, tzMinutes, type Found } from './model'
+import { drawPane } from './pane'
+import { parsePlan, type Plan } from './plan'
+import { applyTaskCall, createdId, fromTaskList } from './tasks'
 
 const view = atom({ plugin: 'timeline', key: 'view' } as const, null)
+const tasks = atom({ plugin: 'timeline', key: 'tasks' } as const, [] as Task[])
 
 const PANE = 'timeline'
 const TOOL = 'mcp__timeline__log'
-const PAGE_SIZE = 40
+const PAGE_SIZE = 30
 const REFRESH_MS = 10_000
-const TONE = { normal: undefined, dim: undefined, accent: 'blue', warn: 'yellow' } as const
+const TASK_TOOLS = ['TaskCreate', 'TaskUpdate', 'TodoWrite', 'TaskList'] as const
+const DOC_TOOLS = ['Read', 'Write', 'Edit'] as const
+const PLAN_MAX_BYTES = 262_144 // a bigger .md is not read for plan detection
+const AUTO_OPEN_TASKS = 3 // open tasks that make the pane worth opening
 
 const MAIN_NOTE =
   'Timeline: call `mcp__timeline__log` (1) once after a user message that sets or changes direction: kind "talk", title = one-line summary of what they asked or decided; (2) when you start a task, finish a step of it, finish it, or get blocked: kind "work", a stable kebab-case `task`, `done`/`total` steps, `status`, `how` (one line), `next` (one line). Never once per tool call; about one entry every few minutes of work. Do not mention the logging in replies.'
@@ -181,32 +187,41 @@ const st = {
   activeTask: undefined as string | undefined,
   hasAutoOpened: false,
   hasWarnedWrite: false,
-  lastNewest: '',
   drawSeq: 0,
   live: {} as Record<string, LiveAgent>,
+  planPath: undefined as string | undefined,
+  plan: undefined as { path: string; mtime: number; parsed: Plan | null } | undefined,
+  notPlan: new Map<string, number>(), // .md path → the mtime at which it was read and was not a plan
+  taskSeq: 0,
+}
+
+// The active plan, re-parsed only when its file changed. A missing or unreadable file clears it.
+async function loadPlan($: Engine): Promise<Plan | null> {
+  const path = st.planPath
+  if (!path) return null
+  try {
+    const { mtimeMs } = await $.fs.stat(path)
+    if (st.plan?.path !== path || st.plan.mtime !== mtimeMs) {
+      st.plan = { path, mtime: mtimeMs, parsed: parsePlan(await $.fs.read(path)) }
+    }
+    return st.plan.parsed
+  } catch {
+    st.planPath = undefined
+    st.plan = undefined
+    return null
+  }
 }
 
 const redraw = async ($: Engine) => {
   const mine = ++st.drawSeq
-  const shown = paginate(buildNodes(st.entries, st.live, st.session, await $.clock.now()), st.page, PAGE_SIZE)
-  st.page = shown.page
-  // Animate the newest node only when it changed; every redraw reloads the drawing and would replay the fade.
-  const newest = shown.nodes.at(-1)
-  const key = newest ? `${newest.kind}|${newest.at}|${newest.title}` : ''
-  const next: View = {
-    header: summarize(st.entries, st.repo?.name ?? 'timeline', st.bad),
-    nodes: shown.nodes,
-    page: shown.page,
-    pages: shown.pages,
-    tz: st.tz,
-    fade: key !== st.lastNewest,
-  }
+  const now = await $.clock.now()
+  const nodes = buildNodes(st.entries, st.live, st.session, now)
+  const panel = buildPanel(nodes, await read($, tasks), await loadPlan($), st.page, PAGE_SIZE, now)
+  st.page = panel.page
+  const next: View = { repo: st.repo?.name ?? 'timeline', ...(st.branch ? { branch: st.branch } : {}), bad: st.bad, tz: st.tz, panel }
   if (mine !== st.drawSeq) return // an older redraw that finishes late must not land last
-  st.lastNewest = key
   // update retries on a version miss; by then a newer redraw may have started, so keep whatever is newer.
   await update($, view, prev => (mine === st.drawSeq ? next : prev))
-  // Keep the live end in view: the engine owns the pane's scroll, and a long timeline starts at the top.
-  if (next.fade && next.page === 0) void $.ui.scroll({ in: PANE, to: 'end' }).catch(() => {})
 }
 
 const reload = async ($: Engine) => {
@@ -228,6 +243,14 @@ const stamp = async ($: Engine, agentId?: string) => ({
 
 const isShown = async ($: Engine) => (await $.ui.panes()).some(p => p.id === PANE && p.isShown && p.isPlaced)
 
+// Opens the pane once per process, on the first sign of real work. Skips when the pane is already open.
+// panes() lists only open panes, so one the person closed reopens once after a reload.
+const autoOpen = async ($: Engine) => {
+  if (st.hasAutoOpened) return
+  st.hasAutoOpened = true
+  if (!(await $.ui.panes()).some(p => p.id === PANE)) void $.ui.open({ id: PANE, title: 'Timeline' }).catch(() => {})
+}
+
 const record = async ($: Engine, entry: Entry) => {
   if (!st.store) return 'timeline has no repo yet'
   const error = await st.store.append(entry)
@@ -236,11 +259,7 @@ const record = async ($: Engine, entry: Entry) => {
     st.hasWarnedWrite = true
     $.ui.toast(`timeline: can't write ${st.store.dir}: ${error}`, { timeoutMs: 10_000 })
   }
-  if (entry.kind === 'work' && !entry.agentId && !st.hasAutoOpened) {
-    st.hasAutoOpened = true
-    // Skip when the pane is already open. panes() lists only open panes, so one the person closed reopens once after a reload.
-    if (!(await $.ui.panes()).some(p => p.id === PANE)) void $.ui.open({ id: PANE, title: 'Timeline' }).catch(() => {})
-  }
+  if (entry.kind === 'work' && !entry.agentId) await autoOpen($)
   await redraw($)
   return error
 }
@@ -336,6 +355,13 @@ export const register: Register = on => {
     await ready
     // append, not record: the session.end chain shares one short wall-clock bound, so no redraw here.
     if (st.store) await st.store.append({ v: 1, ...(await stamp($)), kind: 'session', title: `session ${st.session.slice(0, 8)} closed`, event: 'close' })
+    // The task list and the plan belong to the conversation that ends here.
+    if (e.reason === 'clear' || e.reason === 'resume') {
+      await update($, tasks, () => [])
+      st.planPath = undefined
+      st.plan = undefined
+      st.page = 0
+    }
     return next(e)
   })
 
@@ -431,6 +457,42 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // Claude's own task list and the plan it works from feed NOW / NEXT / BLOCKED and the PLAN bar.
+  // Redraws are not awaited: the model gets its result without waiting on the pane.
+  on('tool.call', { tool: [...TASK_TOOLS, ...DOC_TOOLS] }, async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId || result.deny !== undefined || result.isError === true) return result
+    if ((TASK_TOOLS as readonly string[]).includes(e.tool)) {
+      // TaskList shows the live list, so it replaces the mirror (it also catches tasks changed outside this loop's own calls).
+      const listed = e.tool === 'TaskList' ? fromTaskList(result.result) : undefined
+      if (e.tool === 'TaskList' && !listed) return result
+      const id = e.tool === 'TaskCreate' ? (createdId(result.result, result.text ?? '') ?? `c${++st.taskSeq}`) : ''
+      const list = await update($, tasks, prev => listed ?? applyTaskCall(prev, e.tool, e, id))
+      if (list.filter(t => t.status !== 'completed').length >= AUTO_OPEN_TASKS) void autoOpen($).catch(() => {})
+      void redraw($).catch(() => {})
+    } else if (typeof (e as { file_path?: unknown }).file_path === 'string') {
+      const path = (e as { file_path: string }).file_path
+      if (path === st.planPath) {
+        if (e.tool !== 'Read') void redraw($).catch(() => {}) // the plan changed: its bar moves
+      } else if (path.endsWith('.md')) {
+        try {
+          // Only a file with counted boxes (outside code fences) that is named as a plan or has 3+ boxes becomes the plan;
+          // any other .md leaves the real one alone and is not read again until it changes.
+          const { size, mtimeMs } = await $.fs.stat(path)
+          if (size <= PLAN_MAX_BYTES && st.notPlan.get(path) !== mtimeMs) {
+            const parsed = parsePlan(await $.fs.read(path))
+            if (parsed && (/plan/i.test(path) || parsed.total >= 3)) {
+              st.planPath = path
+              st.plan = { path, mtime: mtimeMs, parsed }
+              void redraw($).catch(() => {})
+            } else st.notPlan.set(path, mtimeMs)
+          }
+        } catch {} // unreadable: not a plan
+      }
+    }
+    return result
+  })
+
   on('agent.spawn', async ($, e, next) => {
     // Only the model's own Agent calls get the logging note; another plugin's spawn may expect its prompt untouched.
     const isModelCall = next.origin.plugin === 'engine'
@@ -438,6 +500,7 @@ export const register: Register = on => {
     if (result.deny !== undefined || !result.agentId) return result
     await ready
     st.live[result.agentId] = { tools: 0, startedAt: await $.clock.now() }
+    if (!e.parentAgentId) await autoOpen($) // a main-loop spawn
     const prompt = clip(e.prompt, 2000)
     await record($, {
       v: 1,
@@ -508,43 +571,16 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const v = await read($, view)
     const ui = $.ui.resolve(e)
-    const { Box, Button, Text } = ui
-    if (!v) return <Text dimColor>Timeline loading…</Text>
+    const { Box, Text, Button } = ui
+    // A view stored by the code before this one (no panel) reads as not drawn yet: the next redraw replaces it.
+    if (!v?.panel) return <Text dimColor>Timeline loading…</Text>
 
     const turn = (delta: number) => async () => {
       st.page = Math.max(0, st.page + delta)
       await redraw($)
     }
-    const head = (
-      <Box flexDirection="row">
-        <Text bold>{v.header} </Text>
-        {v.page < v.pages - 1 && <Button key="older" label="◀ older" onPress={turn(1)} />}
-        {v.page > 0 && <Button key="newer" label="newer ▶" onPress={turn(-1)} />}
-      </Box>
-    )
-
-    if (e.surface !== 'terminal' && 'Svg' in ui) {
-      const { Svg } = ui
-      const alt = `${v.header}. ${v.nodes.length} entries shown; newest: ${v.nodes.at(-1)?.title ?? 'none'}.`
-      return (
-        <Box flexDirection="column">
-          {head}
-          <Svg source={renderSvg(v.nodes, v.tz, { fade: v.fade })} alt={alt} isInteractive />
-        </Box>
-      )
-    }
-
     // bodyColumns is the pane's own width (a docked pane is narrower than the screen viewport).
-    const lines = renderText(v.nodes, e.props.bodyColumns, v.tz)
-    return (
-      <Box flexDirection="column">
-        {head}
-        {lines.map((line, i) => (
-          <Text key={String(i)} color={TONE[line.tone]} dimColor={line.tone === 'dim'} wrap="truncate">
-            {line.text}
-          </Text>
-        ))}
-      </Box>
-    )
+    // The terminal's table names Svg too but draws it as nothing: there the lanes go as text.
+    return drawPane(e.surface === 'terminal' ? { Box, Text, Button } : ui, v, e.props.bodyColumns, turn)
   })
 }

@@ -75,16 +75,44 @@ export type AgentNode = {
   total?: number
   result?: string
   prompt?: string
+  parentTask?: string
 }
 
 export type Node = { kind: 'talk' | 'session' | 'fact'; at: string; title: string } | WorkNode | AgentNode
 
-export type View = { header: string; nodes: Node[]; page: number; pages: number; tz: number // minutes east of UTC (from model.tzMinutes)
-  fade: boolean // newest node changed since the last draw: animate it
+export type View = { repo: string; branch?: string; bad: number; tz: number; panel: Panel }
+
+export type TaskStatus = 'pending' | 'in_progress' | 'completed'
+export type Task = { id: string; subject: string; status: TaskStatus; blockedBy: string[] }
+
+export type HistoryRow = {
+  at: string
+  glyph: string
+  text: string
+  tone: 'normal' | 'dim' | 'ok' | 'warn' | 'fail' | 'run'
+  depth: 0 | 1 // 1: an agent shown under the task it ran for
+  isLast?: boolean // the last child under its parent
+}
+
+export type Lane = { label: string; start: number; end: number; state: 'running' | 'done' | 'failed' | 'unknown' }
+
+export type Panel = {
+  goal?: string
+  plan?: { group?: string; done: number; total: number }
+  nowWork: { title: string; task: string; done?: number; total?: number }[]
+  nowAgents: AgentNode[]
+  nowTasks: Task[]
+  next: Task[]
+  nextMore: number
+  blocked: { title: string; waitsOn?: string }[]
+  lanes: { lanes: Lane[]; from: number; to: number }
+  history: HistoryRow[]
+  page: number
+  pages: number
 }
 
 declare module 'claude-code' {
   interface PluginState {
-    timeline: { view: View | null }
+    timeline: { view: View | null; tasks: Task[] }
   }
 }

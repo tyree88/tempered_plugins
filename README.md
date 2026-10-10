@@ -9,7 +9,7 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 | Folder | Tool | What it does |
 |---|---|---|
 | `ship-state/` | Claude Code | Shows the git, pull request, CI and deploy state of the current repo in one line above the prompt. |
-| `timeline/` | Claude Code | Shows a vertical timeline of the work in a side pane: what you asked, what Claude did, and what each subagent is doing. |
+| `timeline/` | Claude Code | Shows a side pane with what is running now, what is next, and what is blocked. The history of the work is below. |
 | `limit-resume/` | Claude Code | Shows your usage limits and continues a turn after a rate limit resets. |
 | `followups/` | Claude Code | Shows 4 options for your next prompt above the prompt box after each answer. You press 1 to 4 to put one in the box. |
 | `lessons/` | Claude Code | Finds wins and pitfalls in your prompts. It then asks Claude to run your own `win-logger` and `pitfall-logger` skills. The status line shows how many entries you logged. |
@@ -20,7 +20,7 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 
 **ship-state.** During a coding session, you often need to know if your work is pushed, if CI passed, and if production has the change. Without this plugin, you ask Claude, and Claude runs `git` and `gh` commands to find out. Each check costs a model turn. ship-state shows the answer on screen at all times and makes no model calls.
 
-**timeline.** Long work with many steps and many subagents is hard to follow. Without a record, you ask "what is left?" and "what is the current goal?" many times. You also cannot see which model each subagent uses. timeline keeps one record per repo across sessions and shows it as a timeline.
+**timeline.** Long work with many steps and many subagents is hard to follow. Without a record, you ask "what is running now?", "what is next?" and "what is blocked?" many times. You also cannot see which model each subagent uses. timeline answers these 3 questions at a glance in a side pane. The history of the work is below the answers. timeline keeps one record per repo across sessions.
 
 **limit-resume.** When a session hits a usage limit, the work stops until you type "try again". If you are away, the session stays idle after the limit resets. limit-resume continues the work at the reset time. It also shows your usage before you reach the limit.
 
@@ -89,16 +89,46 @@ The band of ship-state stacks with the bands of other plugins, such as followups
 
 ## How to use timeline
 
-1. Type `/timeline` to open or close the pane. The pane also opens by itself when Claude logs the first task of a session.
-2. Read the pane from top to bottom. The newest entry is at the bottom.
-3. Read the left side for your requests and decisions. Claude writes each one as a one-line summary.
-4. Read the right side for the work:
-   - A task card shows a title, a progress bar such as `██████░░░░ 2/3`, how Claude did the step, and the next step.
-   - Lines that start with `↳` show commits, pushes, pull requests and CI results for the active task.
-   - A subagent card shows the agent type, the model, the status, and the elapsed time. It also shows the current tool call (`now:`), the next step (`next:`), the number of tool calls, the tokens, and the result.
-5. Look for `⚠ no model set: inherited` on a subagent card. This warning means that the subagent uses the same model as the main session, because nothing set a model for it.
-6. Hold the pointer on a card in the desktop app to see more detail.
-7. If the timeline has more than 40 entries, use `◀ older` and `newer ▶` to move between pages.
+1. Type `/timeline` to open or close the pane.
+2. Wait for the pane to open by itself. It opens once per session, on the first of these events:
+   - Claude logs a task.
+   - Claude has 3 or more open tasks.
+   - Claude starts a subagent.
+3. Read the pane from top to bottom. The table below lists the zones.
+4. Look for `⚠ inherited model` on a subagent in NOW. This mark means that no model was set for the subagent, so it uses the model of the main session.
+5. If HISTORY has more than 30 entries, use `◀ older` and `newer ▶` to move between pages.
+
+The pane uses the text and colors of the app, on the desktop and in the terminal. It fits any width. At 70 columns or more, NEXT and BLOCKED sit side by side. At fewer columns, they stack.
+
+| Zone | What it shows |
+|---|---|
+| Header | The repo and the branch. |
+| `GOAL` | The title of the plan while the plan has unticked boxes. Otherwise, the latest active task that Claude logged in the last 24 hours. |
+| `PLAN` | A progress bar, the current section of the plan file, and the steps done out of the total. It shows only when at least 1 box in the plan is ticked. |
+| `NOW` | The tasks that Claude logged as in progress in the last 24 hours, with a progress bar when the task has steps. Then the tasks that Claude has in progress, and the subagents that run now. A subagent shows its title, type, model, elapsed time, tool calls and tokens. It also shows `now:` (the current tool) and `next:` (the next step) when they are known. Subagents from another session that started more than 24 hours ago do not show. |
+| `NEXT` | Up to 5 pending tasks that wait on nothing. Then `+N more`. |
+| `BLOCKED` | Pending tasks that wait on an unfinished task (`waits on #N`). Also the tasks that Claude logged as blocked in the last 24 hours. |
+| `AGENTS · last 15 min` | One bar for each subagent run in the last 15 minutes, up to 8. Each bar has the short description of the subagent as its label, not the type. The bar starts when the subagent starts and stops when it ends. The colors are blue for running, green for done, red for failed and gray for status unknown. The terminal draws the bars with block characters. Below the bars are the start time, the middle time and `now`. |
+| `HISTORY` | One line for each entry, newest first: the time, a mark, and the text. Each subagent shows below the task that it ran for, on a line that starts with `├` or `└`. A subagent that ran for no logged task has a line of its own. A subagent line shows the type, the model, the title and the run time. History does not show the results of subagents. Each page has 30 entries, and each entry keeps its subagent lines. |
+
+The marks in HISTORY are:
+
+| Mark | Meaning |
+|---|---|
+| 💬 | A request or a decision. |
+| ▶ | Running. |
+| ✓ | Done. |
+| ⚠ | Blocked. |
+| ✗ | Failed. |
+| ? | Status unknown. |
+| ↳ | A commit, a push, a pull request or a CI result. |
+
+timeline reads 4 sources:
+
+- The task list of Claude (`TaskCreate`, `TaskUpdate`, `TaskList` and `TodoWrite`).
+- The subagents.
+- The plan file that Claude reads or edits. A plan file is a markdown file with checkboxes. Its name contains "plan", or it has 3 or more boxes.
+- The tool `mcp__timeline__log`.
 
 How timeline works:
 
@@ -107,13 +137,10 @@ How timeline works:
 - The log tool needs no permission prompt.
 - timeline stores the history per repo in `~/.claude/timelines/<repo>-<hash>/`. Each session writes only its own files. Worktrees of a repo share one timeline.
 - If 2 sessions work in the same repo, each pane shows the entries of the other session within 10 seconds.
-- The desktop app draws the timeline as an image, with colors for light mode and dark mode. The terminal draws it as text. If the terminal is narrower than 70 columns, the text uses 1 column.
 
 Usage cost: each logged entry costs approximately 40 to 80 output tokens. The instruction costs approximately 100 tokens in each session.
 
 Privacy: the timeline files contain Claude's one-line summaries, the first 2000 characters of each subagent prompt, and commit subjects. The files stay on your computer.
-
-Status: timeline is built and reviewed. Live testing is in progress.
 
 ## How to use followups
 
@@ -219,6 +246,8 @@ node followups/checks/ask.check.ts
 node lessons/checks/detect.check.ts
 bash timeline/checks/run.sh
 ```
+
+To run the behavior test of timeline, run `claude plugin test timeline`. It runs 18 cases on the terminal and desktop surfaces.
 
 To run the behavior test of followups, run `claude plugin test followups`. It runs 8 cases on the terminal and desktop surfaces.
 
