@@ -21,9 +21,9 @@ const PLAN_MAX_BYTES = 262_144 // a bigger .md is not read for plan detection
 const AUTO_OPEN_TASKS = 3 // open tasks that make the pane worth opening
 
 const MAIN_NOTE =
-  'Timeline: call `mcp__timeline__log` (1) once after a user message that sets or changes direction: kind "talk", title = one-line summary of what they asked or decided; (2) when you start a task, finish a step of it, finish it, or get blocked: kind "work", a stable kebab-case `task`, `done`/`total` steps, `status`, `how` (one line), `next` (one line). Never once per tool call; about one entry every few minutes of work. Do not mention the logging in replies.'
+  'Timeline: call `mcp__timeline__log` (1) once after a user message that sets or changes direction: kind "talk", title = one-line summary of what they asked or decided; (2) when you start a task, finish a step of it, finish it, or get blocked: kind "work", a stable kebab-case `task`, `done`/`total` steps, `status`, `how` (one line), `next` (one line). Never once per tool call; about one entry every few minutes of work. Do not mention the logging in replies. Write `title`, `how` and `next` in Simplified Technical English: one short declarative sentence each (max 12 words), active voice, present tense, exact names, no filler or hedging.'
 const AGENT_NOTE =
-  '\n\nWhile you work, call `mcp__timeline__log` with kind "work" at start, after each step, and at the end, with `done`/`total`, `how`, and `next`. Keep each call short.'
+  '\n\nWhile you work, call `mcp__timeline__log` with kind "work" at start, after each step, and at the end, with `done`/`total`, `how`, and `next`. Keep each call short. Write `title`, `how` and `next` in Simplified Technical English: one short declarative sentence each (max 12 words), active voice, present tense, exact names, no filler or hedging.'
 
 const INPUT_SCHEMA = {
   type: 'object',
@@ -337,7 +337,7 @@ export const register: Register = on => {
     await $.tool.register({
       name: 'log',
       description:
-        'Record an entry on this repo\'s orchestration timeline. kind "talk": one-line summary of what the user asked or decided. kind "work": a task milestone with a stable kebab-case task id, done/total steps, status, how, and next.',
+        'Record an entry on this repo\'s orchestration timeline. kind "talk": one-line summary of what the user asked or decided. kind "work": a task milestone with a stable kebab-case task id, done/total steps, status, how, and next. Use Simplified Technical English: short, active, no filler.',
       inputSchema: INPUT_SCHEMA,
     })
     await $.command.register({ name: 'timeline', description: 'Show or hide the orchestration timeline pane' })
