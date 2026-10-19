@@ -33,6 +33,11 @@
       "name": "tempered-skills",
       "source": "./plugins/tempered-skills",
       "description": "24 skills for prompt writing, verification, shipping discipline, drift audits and Supabase safety."
+    },
+    {
+      "name": "multi-harness",
+      "source": "./plugins/multi-harness",
+      "description": "6 skills to plan large work in waves and track it to completion: wave planning, agent patterns, branch and PR closeout, tracker sync, QA evidence, safety review."
     }
   ]
 }
