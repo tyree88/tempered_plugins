@@ -1,0 +1,4 @@
+interface:
+  display_name: "Multi-Agent Workflow Validation"
+  short_description: "Test any workflow with specialist agent lenses."
+  default_prompt: "Use $multi-agent-workflow-validation to review, test, and improve this workflow with independent specialist agent perspectives and evidence-based QA."

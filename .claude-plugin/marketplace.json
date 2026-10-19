@@ -1,33 +1,38 @@
 {
-  "name": "tempered-plugins",
+  "name": "tempered-marketplace",
   "owner": {
     "name": "Tempered Works"
   },
   "plugins": [
     {
       "name": "limit-resume",
-      "source": "./limit-resume",
+      "source": "./mods/limit-resume",
       "description": "Auto-resumes a turn killed by a rate limit or API error once the limit resets; shows 5h/7d usage and warns at 85%."
     },
     {
       "name": "ship-state",
-      "source": "./ship-state",
+      "source": "./mods/ship-state",
       "description": "Band above the prompt: branch, dirty files, ahead/behind, PR, CI and prod deploy for the repo the session works in; toasts when CI finishes or prod goes live; one-key commit/push button."
     },
     {
       "name": "timeline",
-      "source": "./timeline",
+      "source": "./mods/timeline",
       "description": "Vertical orchestration timeline: talk on the left, work milestones with progress and live subagent cards on the right, per repo across sessions."
     },
     {
       "name": "followups",
-      "source": "./followups",
+      "source": "./mods/followups",
       "description": "After each answer, 4 next-prompt options above the prompt box (keys 1-4); picking one fills the box. Replaces the single grey suggestion."
     },
     {
       "name": "lessons",
-      "source": "./lessons",
+      "source": "./mods/lessons",
       "description": "Spots wins and pitfalls in your prompts and has Claude run your win-logger / pitfall-logger skills; session tally in the status line."
+    },
+    {
+      "name": "tempered-skills",
+      "source": "./plugins/tempered-skills",
+      "description": "24 skills for prompt writing, verification, shipping discipline, drift audits and Supabase safety."
     }
   ]
 }

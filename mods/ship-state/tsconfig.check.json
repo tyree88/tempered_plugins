@@ -1,26 +1,18 @@
 {
   "compilerOptions": {
     "target": "es2023",
-    "lib": [
-      "es2023"
-    ],
+    "lib": ["es2023"],
     "types": [],
     "module": "esnext",
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
-    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "jsx": "react",
     "jsxFactory": "h",
     "jsxFragmentFactory": "Fragment"
   },
-  "include": [
-    "../.claude/types/claude-code.d.ts",
-    "../ship-state/types/index.d.ts",
-    "hooks",
-    "types",
-    "timeline.test.ts"
-  ]
+  "include": ["../../.claude/types/claude-code.d.ts", "hooks", "types", "ship-state.test.ts"]
 }

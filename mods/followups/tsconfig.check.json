@@ -9,7 +9,10 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "jsx": "react",
+    "jsxFactory": "h",
+    "jsxFragmentFactory": "Fragment"
   },
-  "include": ["../.claude/types/claude-code.d.ts", "hooks", "types", "lessons.test.ts"]
+  "include": ["../../.claude/types/claude-code.d.ts", "hooks", "types", "followups.test.ts"]
 }
