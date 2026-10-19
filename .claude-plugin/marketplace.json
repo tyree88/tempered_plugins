@@ -32,7 +32,7 @@
     {
       "name": "tempered-skills",
       "source": "./plugins/tempered-skills",
-      "description": "24 skills for prompt writing, verification, shipping discipline, drift audits and Supabase safety."
+      "description": "25 skills for prompt writing, verification, shipping discipline, drift audits and Supabase safety."
     },
     {
       "name": "multi-harness",
