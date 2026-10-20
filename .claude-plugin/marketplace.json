@@ -3,6 +3,7 @@
   "owner": {
     "name": "Tempered Works"
   },
+  "description": "Tempered Works plugins for Claude Code: interface mods (limit-resume, ship-state, timeline, followups, lessons) and skill packs (tempered-skills, multi-harness).",
   "plugins": [
     {
       "name": "limit-resume",
