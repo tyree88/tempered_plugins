@@ -1,0 +1,8 @@
+{
+  "name": "tempered-skills",
+  "version": "0.1.0",
+  "description": "25 skills from Tempered Works for prompt writing, verification, shipping discipline, drift audits and Supabase safety.",
+  "author": {
+    "name": "Tempered Works"
+  }
+}

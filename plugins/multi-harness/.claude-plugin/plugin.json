@@ -1,0 +1,9 @@
+{
+  "name": "multi-harness",
+  "version": "0.1.0",
+  "description": "6 skills to plan large work in waves and track it to completion: wave planning, agent patterns, branch and PR closeout, tracker sync, QA evidence, safety review.",
+  "author": {
+    "name": "Tempered Works"
+  },
+  "license": "MIT"
+}
