@@ -1,8 +1,8 @@
 # Tempered Plugins
 
-This repository holds plugins from Tempered Works for AI coding tools. Five plugins are for Claude Code. One plugin is for Codex.
+This repository holds plugins from Tempered Works for AI coding tools. Six plugins are for Claude Code. One plugin is for Codex.
 
-A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The five Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
+A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The six Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
 
 ## What is in this repository
 
@@ -13,8 +13,9 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 | `limit-resume/` | Claude Code | Shows your usage limits and continues a turn after a rate limit resets. |
 | `followups/` | Claude Code | Shows 4 options for your next prompt above the prompt box after each answer. You press 1 to 4 to put one in the box. |
 | `lessons/` | Claude Code | Finds wins and pitfalls in your prompts. It then asks Claude to run your own `win-logger` and `pitfall-logger` skills. The status line shows how many entries you logged. |
+| `focus-group/` | Claude Code | Shows a side pane for a run of the `self-staffing-focus-group` skill: the agents, the gates G0 to G5, and the findings. Makes reviewer and verifier agents run in the foreground, and refuses a "verified" result while an agent still runs. |
 | `multi-harness/` | Codex | Gives Codex 6 skills to plan large work in waves and to track it to completion. |
-| `.claude-plugin/marketplace.json` | Claude Code | Lists the 5 Claude Code plugins so that Claude Code can install them from this repository. |
+| `.claude-plugin/marketplace.json` | Claude Code | Lists the 6 Claude Code plugins so that Claude Code can install them from this repository. |
 
 ## Why these plugins exist
 
@@ -28,11 +29,13 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 
 **lessons.** The same mistakes happen again, and good patterns get lost. A skill that logs them is useful, but it often does not run at the right moment. lessons makes the skill run. It reads your prompts for praise, frustration, and repeated requests. When it finds one, it tells Claude to run the matching skill after Claude finishes your request. The skill always asks "Log it? y/n" before it writes. You stay in control.
 
+**focus-group.** The `self-staffing-focus-group` skill sends work to reviewer and verifier subagents. These subagents run in the background by default. In tests, the skill sometimes gave its answer before a verifier returned, and the verifier then found a blocker. focus-group stops this. It runs reviewers and verifiers in the foreground, so the skill waits for them. Its `record` tool refuses a G4 or G5 pass while an agent still runs. The side pane shows what the run waits for, so you know when to trust the result.
+
 **multi-harness.** Large product work needs a plan, branch and pull request gates, tracker updates, QA evidence, and a safe closeout. multi-harness gives Codex a repeatable method for these steps. The method is the same for every product.
 
 ## Requirements
 
-- Claude Code with support for function-hook plugins. We tested the plugins on Claude Code 2.1.288 on macOS. All Claude Code plugins pass `claude plugin validate`.
+- Claude Code with support for function-hook plugins. We tested the plugins on Claude Code 2.1.288 on macOS, and focus-group on Claude Code 2.1.295. All Claude Code plugins pass `claude plugin validate`.
 - `git` 2.31 or newer.
 - The GitHub CLI `gh`, signed in. ship-state and timeline use it for pull request, CI and deploy data. Without `gh`, they show only local git data.
 - Production deploy data comes from GitHub deployment records. Vercel and most hosting services create these records.
@@ -50,6 +53,7 @@ Use one of these 2 methods.
 /plugin install limit-resume@tempered-plugins
 /plugin install followups@tempered-plugins
 /plugin install lessons@tempered-plugins
+/plugin install focus-group@tempered-plugins
 ```
 
 Install only the plugins that you want.
@@ -205,6 +209,32 @@ Usage cost: lessons makes no model calls. A note costs approximately 40 tokens. 
 
 Privacy: your last 10 prompts stay in memory only, for the repeat check. lessons does not write them to disk.
 
+## How to use focus-group
+
+focus-group works with the `self-staffing-focus-group` skill from the `tempered-skills` plugin. Install both.
+
+1. Ask Claude to run a focus group or an expert panel on a task. The skill starts a run and sends work to subagents.
+2. Look at the side pane. The first line shows the fact that blocks the result, for example:
+
+```
+Waiting on 1 agent: V1 (Adversarial verifier)
+```
+
+3. Read the parts below the first line:
+
+| Part | Meaning |
+|---|---|
+| Roster | Each agent with its status (`running`, `returned` or `failed`), its role and focus, and `foreground` if focus-group made it run in the foreground. |
+| Gates | G0 to G5, each `pass`, `cond`, `blocked` or `open`. |
+| Findings | Each finding with its priority and disposition. Open findings are first. |
+
+4. When the run ends with all agents returned, the pane shrinks to 1 line, for example `Verified: 3 agents, 5 findings, 4 accepted`. Press `Show details` to see all parts.
+5. To open the pane again, type `/focus-group`. The status line shows `focus group: 1 running` while an agent runs.
+
+focus-group reads each agent from the `Persona:`, `Role:` and `Focus:` lines of its brief. The skill writes these lines. An agent without them is not in the pane, and focus-group does not change how it runs. Agents with a role that contains "verif", "review", "evaluat" or "critic" run in the foreground. Other agents, for example researchers, stay in the background.
+
+Usage cost: focus-group makes no model calls. While an agent runs, it adds 1 line to each Agent tool result that the skill reads.
+
 ## How to use limit-resume
 
 limit-resume needs no action. It starts with each session.
@@ -258,6 +288,8 @@ To run the behavior test of timeline, run `claude plugin test timeline`. It runs
 To run the behavior test of followups, run `claude plugin test followups`. It runs 8 cases on the terminal and desktop surfaces.
 
 To run the behavior test of lessons, run `claude plugin test lessons`. It runs 9 cases.
+
+To run the behavior test of focus-group, run `claude plugin test focus-group`. It runs 3 cases. The pane cases run on the terminal, desktop and mobile surfaces.
 
 To type-check timeline, do these 2 steps:
 

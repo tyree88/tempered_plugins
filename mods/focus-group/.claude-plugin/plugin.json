@@ -1,0 +1,9 @@
+{
+  "name": "focus-group",
+  "version": "0.1.0",
+  "description": "Live panel and wait-for-returns guard for the self-staffing-focus-group skill: roster, gates G0-G5, findings; reviewers and verifiers run in the foreground.",
+  "author": {
+    "name": "Tempered Works"
+  },
+  "types": "./types/index.d.ts"
+}
