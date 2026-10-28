@@ -1,6 +1,6 @@
 {
   "name": "platform-orchestrator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Reusable wave-based platform orchestration skills for planning, branch/PR execution, tracker sync, QA evidence, and closeout across products.",
   "author": {
     "name": "Local developer"
