@@ -1,6 +1,6 @@
 {
   "name": "timeline",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Vertical orchestration timeline: talk on the left, work milestones with progress and live subagent cards on the right, per repo across sessions.",
   "author": {
     "name": "Tempered Works"
