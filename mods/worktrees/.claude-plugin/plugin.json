@@ -1,0 +1,23 @@
+{
+  "name": "worktrees",
+  "version": "0.1.0",
+  "description": "Side pane of every git worktree, grouped by repo: uncommitted work idle 7+ days in red with a one-key local WIP rescue (never pushes, skips secrets), safe-to-remove worktrees dimmed, toasts when a worktree is created or turns at risk.",
+  "author": {
+    "name": "Tempered Works"
+  },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "roots": {
+      "type": "string",
+      "title": "Roots",
+      "description": "Comma-separated folders to scan for git repos (5 levels deep, ~ allowed). Empty: the session's folder and its repo.",
+      "default": ""
+    },
+    "staleDays": {
+      "type": "number",
+      "title": "Stale after (days)",
+      "description": "A worktree with no commit or checkout for this many days is marked stale.",
+      "default": 14
+    }
+  }
+}

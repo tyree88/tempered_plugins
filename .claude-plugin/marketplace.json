@@ -3,7 +3,7 @@
   "owner": {
     "name": "Tempered Works"
   },
-  "description": "Tempered Works plugins for Claude Code: interface mods (limit-resume, ship-state, timeline, followups, lessons, focus-group) and skill packs (tempered-skills, multi-harness).",
+  "description": "Tempered Works plugins for Claude Code: interface mods (limit-resume, ship-state, timeline, followups, lessons, focus-group, worktrees) and skill packs (tempered-skills, multi-harness).",
   "plugins": [
     {
       "name": "limit-resume",
@@ -34,6 +34,11 @@
       "name": "focus-group",
       "source": "./mods/focus-group",
       "description": "Side pane for a self-staffing-focus-group run: roster, gates G0-G5, findings. Runs reviewers and verifiers in the foreground and refuses a G4/G5 pass while an agent still runs."
+    },
+    {
+      "name": "worktrees",
+      "source": "./mods/worktrees",
+      "description": "Side pane of every git worktree, grouped by repo: uncommitted work idle 7+ days in red with a one-key local WIP rescue (never pushes, skips secrets), safe-to-remove worktrees dimmed, toasts when a worktree is created or turns at risk."
     },
     {
       "name": "tempered-skills",

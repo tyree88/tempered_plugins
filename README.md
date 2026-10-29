@@ -1,8 +1,8 @@
 # Tempered Plugins
 
-This repository holds plugins from Tempered Works for AI coding tools. Six plugins are for Claude Code. One plugin is for Codex.
+This repository holds plugins from Tempered Works for AI coding tools. Seven plugins are for Claude Code. One plugin is for Codex.
 
-A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The six Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
+A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The seven Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
 
 ## What is in this repository
 
@@ -14,8 +14,9 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 | `followups/` | Claude Code | Shows 4 options for your next prompt above the prompt box after each answer. You press 1 to 4 to put one in the box. |
 | `lessons/` | Claude Code | Finds wins and pitfalls in your prompts. It then asks Claude to run your own `win-logger` and `pitfall-logger` skills. The status line shows how many entries you logged. |
 | `focus-group/` | Claude Code | Shows a side pane for a run of the `self-staffing-focus-group` skill: the agents, the gates G0 to G5, and the findings. Makes reviewer and verifier agents run in the foreground, and refuses a "verified" result while an agent still runs. |
+| `worktrees/` | Claude Code | Shows a side pane with every git worktree in your folders, grouped by repo. Marks in red the worktrees with uncommitted work that nobody touched for 7 days, and saves that work with one key. Shows which worktrees are safe to remove. |
 | `multi-harness/` | Codex | Gives Codex 6 skills to plan large work in waves and to track it to completion. |
-| `.claude-plugin/marketplace.json` | Claude Code | Lists the 6 Claude Code plugins so that Claude Code can install them from this repository. |
+| `.claude-plugin/marketplace.json` | Claude Code | Lists the 7 Claude Code plugins so that Claude Code can install them from this repository. |
 
 ## Why these plugins exist
 
@@ -31,11 +32,13 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 
 **focus-group.** The `self-staffing-focus-group` skill sends work to reviewer and verifier subagents. These subagents run in the background by default. In tests, the skill sometimes gave its answer before a verifier returned, and the verifier then found a blocker. focus-group stops this. It runs reviewers and verifiers in the foreground, so the skill waits for them. Its `record` tool refuses a G4 or G5 pass while an agent still runs. The side pane shows what the run waits for, so you know when to trust the result.
 
+**worktrees.** Agents and sessions create git worktrees, and few of them get removed. After some weeks, one repo can have 60 worktrees. Some hold uncommitted work that you forgot. If you or an agent removes such a worktree, the work is lost. worktrees finds these worktrees and marks them in red. One key saves the work as a local WIP commit, so that a removal cannot lose it. The pane also shows which worktrees are safe to remove. The rescue never pushes and never removes anything.
+
 **multi-harness.** Large product work needs a plan, branch and pull request gates, tracker updates, QA evidence, and a safe closeout. multi-harness gives Codex a repeatable method for these steps. The method is the same for every product.
 
 ## Requirements
 
-- Claude Code with support for function-hook plugins. We tested the plugins on Claude Code 2.1.288 on macOS, and focus-group on Claude Code 2.1.295. All Claude Code plugins pass `claude plugin validate`.
+- Claude Code with support for function-hook plugins. We tested the plugins on Claude Code 2.1.288 on macOS, and focus-group and worktrees on Claude Code 2.1.295. All Claude Code plugins pass `claude plugin validate`.
 - `git` 2.31 or newer.
 - The GitHub CLI `gh`, signed in. ship-state and timeline use it for pull request, CI and deploy data. Without `gh`, they show only local git data.
 - Production deploy data comes from GitHub deployment records. Vercel and most hosting services create these records.
@@ -54,6 +57,7 @@ Use one of these 2 methods.
 /plugin install followups@tempered-plugins
 /plugin install lessons@tempered-plugins
 /plugin install focus-group@tempered-plugins
+/plugin install worktrees@tempered-plugins
 ```
 
 Install only the plugins that you want.
@@ -235,6 +239,53 @@ focus-group reads each agent from the `Persona:`, `Role:` and `Focus:` lines of 
 
 Usage cost: focus-group makes no model calls. While an agent runs, it adds 1 line to each Agent tool result that the skill reads.
 
+## How to use worktrees
+
+1. Set the folders to scan. Type `/config`, find `worktrees`, and set `Roots` to a comma-separated list, for example `~/code, ~/work`. worktrees finds git repos up to 5 levels below each folder. If `Roots` is empty, worktrees scans the session folder and its repo.
+2. Look at the side pane. The first line shows the totals, for example `194 worktrees · 36 at risk · 48 holding work · 90 safe to remove`.
+3. Read the rows. Each repo is a group. At-risk rows are first.
+
+| Mark | Status | Meaning |
+|---|---|---|
+| `!` in red | at risk | The worktree has uncommitted files, and nobody touched it for 7 days or more. If it is removed, the files are lost. |
+| `●` in yellow | holding work | The worktree has uncommitted files that somebody touched in the last 7 days, or commits that are on no remote (`local only`). A removal does not lose commits. |
+| `·` | live | In use, nothing to do. |
+| `✓` dim | safe to remove | Clean, and all commits are on a remote: merged into the default branch, the remote branch is gone, or no activity for 14 days. |
+| `✕` dim | folder missing | The folder is gone. Only a git record is left. |
+| `new` | | The worktree appeared in the last 24 hours. |
+
+4. Press a row to open it. The row shows the path, the branch, the facts, the recommended next step, and one button:
+
+| Status | Button | What it does |
+|---|---|---|
+| at risk | `Rescue: commit as WIP` | Saves the work as a local commit `wip: <summary>` on the branch of the worktree. |
+| holding work, local only | `Ask Claude to push` | Puts a request to push the branch in the prompt box. You edit it or press Enter. |
+| safe to remove | `Ask Claude to remove` | Puts a request in the prompt box: `git worktree remove` without `--force`, then `git branch -d`. You edit it or press Enter. |
+| folder missing | `Prune record` | Runs `git worktree prune` in the repo. This removes only the git record of the missing folder. |
+
+5. To rescue all at-risk worktrees of a repo, press `Rescue N` next to the repo name. The rescue runs in the background, one worktree at a time. The pane shows the progress, for example `Rescuing app 7/20 · old-onboarding`. At the end, a toast shows the result, for example `Rescued 18 of 20 in app; 2 need you.` Press a row to see why it needs you.
+6. Press `Show at-risk only` (key `r`) to hide the other rows. Press `Rescan now` (key `s`) to scan again. Type `/worktrees` to open the pane again.
+
+### What a rescue does
+
+worktrees runs each git step itself. The model writes only the commit subject: it gets the staged diff and has no tools.
+
+1. It lists the changed files with `git status`.
+2. It does not commit these files: names that look like secrets (`.env` and `.env.*` but not `.env.example`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `*.jks`, `*.keystore`, `id_rsa*`, `id_ed25519*`, `credentials.json`, `service-account*.json`, `.npmrc`, `.netrc`, any name with `secret`), and files larger than 5 MB.
+3. It stops, and changes nothing, if a file of step 2 is already staged, if more than 200 files changed, or if the worktree has a detached HEAD.
+4. It stages the other files, checks that no file of step 2 is staged, and commits with the subject `wip: <summary>`. The commit body lists the files that it did not commit.
+
+A rescue never pushes, never amends, never resets and never removes a worktree. To undo a rescue, run `git reset HEAD~1` in the worktree.
+
+### Alerts
+
+- The status line shows `worktrees: N at risk` while at-risk worktrees exist.
+- A toast shows when a worktree becomes at risk, and when a worktree is created.
+
+worktrees scans every 3 minutes. It also scans when Claude Code creates or removes a worktree, and after a Bash command that runs `git worktree add`, `remove`, `move` or `prune`. A scan of 194 worktrees takes approximately 20 seconds.
+
+Usage cost: a scan makes no model calls. A rescue makes one small Haiku call for each worktree that it commits.
+
 ## How to use limit-resume
 
 limit-resume needs no action. It starts with each session.
@@ -279,6 +330,7 @@ node ship-state/check.ts
 node followups/checks/ask.check.ts
 node lessons/checks/detect.check.ts
 bash timeline/checks/run.sh
+node mods/worktrees/check.ts
 ```
 
 To run the behavior test of ship-state, run `claude plugin test ship-state`. It runs 16 cases on the terminal and desktop surfaces.
@@ -290,6 +342,8 @@ To run the behavior test of followups, run `claude plugin test followups`. It ru
 To run the behavior test of lessons, run `claude plugin test lessons`. It runs 9 cases.
 
 To run the behavior test of focus-group, run `claude plugin test focus-group`. It runs 3 cases. The pane cases run on the terminal, desktop and mobile surfaces.
+
+To run the behavior test of worktrees, run `claude plugin test mods/worktrees`. It runs 3 cases on the terminal and desktop surfaces: the status marks and the creation toast; a rescue that commits the code file but not `.env` and never pushes; and a removal that is a prompt, not an action.
 
 To type-check timeline, do these 2 steps:
 
