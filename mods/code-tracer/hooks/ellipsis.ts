@@ -27,22 +27,3 @@ export function ellipsize(path: string, budget: number, tail = 2): string {
   if (room >= 1) return `${prefix}${base.slice(0, room)}…${ext}`
   return `${prefix}${file}`.slice(0, Math.max(1, budget))
 }
-
-// The same for several rows drawn together: two distinct paths that would render alike both keep one more
-// trailing segment, within the same step order, until they differ or run out of segments.
-export function ellipsizeAll(paths: readonly string[], budget: number): string[] {
-  const tails = paths.map(() => 2)
-  for (let round = 0; round < 8; round++) {
-    const out = paths.map((p, i) => ellipsize(p, budget, tails[i] ?? 2))
-    let widened = false
-    out.forEach((s, i) => {
-      const twin = out.findIndex((t, j) => j !== i && t === s && paths[j] !== paths[i])
-      if (twin >= 0 && (tails[i] ?? 2) < (paths[i] ?? '').split('/').length) {
-        tails[i] = (tails[i] ?? 2) + 1
-        widened = true
-      }
-    })
-    if (!widened) return out
-  }
-  return paths.map((p, i) => ellipsize(p, budget, tails[i] ?? 2))
-}

@@ -1,4 +1,4 @@
-import type { Agent, AgentRow, Change, Evidence, FileRow, Signal } from '../types'
+import type { Agent, Change, Evidence, FileRow, Signal } from '../types'
 import { declarations, isCodePath, isConfigPath, isCosmetic, isTestPath, signatureChanges } from './capture.ts'
 import { REACH_MIN } from './reach.ts'
 import { rebasePath, type Placed, type Rebased } from './spans.ts'
@@ -163,46 +163,11 @@ export function evidenceOf(mine: readonly Change[], all: readonly Change[]): Evi
   }
 }
 
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
-
-// One row per agent that changed something, worked, or still runs. Running first, then by start time; main stays.
-export function agentRows(changes: readonly Change[], agents: readonly Agent[], now: number): AgentRow[] {
-  const rows: AgentRow[] = []
-  for (const a of agents) {
-    const mine = changes.filter(c => agentOf(c) === a.agentId)
-    const running = !a.endedAt
-    if (a.agentId !== 'main' && !mine.length && !running && !a.reads && !a.edits && !a.asks) continue
-    rows.push({
-      id: a.agentId,
-      tag: a.tag,
-      model: a.model,
-      description: a.agentId === 'main' ? '' : a.description,
-      state: running ? 'running' : a.agentId === 'main' ? 'idle' : 'done',
-      ...(running ? { elapsedMs: Math.max(0, now - a.startedAt) } : {}),
-      ...(a.lastAt !== undefined ? { last: { at: a.lastAt, tool: a.lastTool ?? '', target: a.lastTarget ?? '' } } : {}),
-      evidence: evidenceOf(mine, changes),
-      activity: [plural(a.edits, 'edit'), plural(a.reads, 'read'), a.asks ? `${a.asks} asked` : ''].filter(Boolean).join(' · '),
-    })
-  }
-  return rows.sort((x, y) => Number(y.state === 'running') - Number(x.state === 'running') || (agents.find(a => a.agentId === x.id)?.startedAt ?? 0) - (agents.find(a => a.agentId === y.id)?.startedAt ?? 0))
-}
-
-// The file view: every path with each agent's rebased spans, overlaps marked. `visible` keeps only paths that set touched.
-export function fileRows(all: readonly Change[], agents: readonly Agent[], visiblePaths?: Set<string>): FileRow[] {
-  const rebased = rebaseAll(all.filter(c => !c.isDeleted && !c.isTooLarge))
-  const rows: FileRow[] = []
-  for (const [path, r] of rebased) {
-    if (visiblePaths && !visiblePaths.has(path)) continue
-    const here = all.filter(c => c.path === path && !c.isDeleted && !c.isTooLarge)
-    const byAgent = new Map<string, Change[]>()
-    for (const c of here) byAgent.set(agentOf(c), [...(byAgent.get(agentOf(c)) ?? []), c])
-    const overlapIds = new Set(r.overlaps.flatMap(o => [o.a, o.b]))
-    const rowAgents = [...byAgent].map(([id, cs]) => {
-      const a = agents.find(x => x.agentId === id)
-      const spans = cs.flatMap(c => (r.spans.get(c.id) ?? []).map(s => ({ ...s, overlap: overlapIds.has(c.id) && r.overlaps.some(o => (o.a === c.id || o.b === c.id) && o.span.from <= s.to && s.from <= o.span.to) })))
-      return { id, tag: a?.tag ?? id, state: (a && !a.endedAt ? 'running' : id === 'main' ? 'idle' : 'done') as AgentRow['state'], spans, lastAt: Math.max(...cs.map(c => c.at)) }
-    })
-    rows.push({ path, agents: rowAgents, ...(r.overlaps[0] ? { overlap: r.overlaps[0].span } : {}), lastAt: Math.max(...here.map(c => c.at)) })
-  }
-  return rows.sort((x, y) => Number(!!y.overlap) - Number(!!x.overlap) || y.agents.length - x.agents.length || y.lastAt - x.lastAt)
+// Every path with the agents that changed it and the first intersection of two agents' rebased spans.
+export function fileRows(all: readonly Change[], agents: readonly Agent[]): FileRow[] {
+  const live = all.filter(c => !c.isDeleted && !c.isTooLarge)
+  return [...rebaseAll(live)].map(([path, r]) => {
+    const ids = [...new Set(live.filter(c => c.path === path).map(agentOf))]
+    return { path, agents: ids.map(id => ({ id, tag: agents.find(x => x.agentId === id)?.tag ?? id })), ...(r.overlaps[0] ? { overlap: r.overlaps[0].span } : {}) }
+  })
 }

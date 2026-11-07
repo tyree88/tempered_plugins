@@ -5,7 +5,9 @@ export type Span = { from: number; to: number }
 
 export type Signal = { label: string; pts: number } // pts 0 is a flag, not a point
 
-export type WhySource = 'captured' | 'spawn' | 'none' | 'judged' // 'judged' only in v1.1
+// captured: the agent's own sentence; spawn: a subagent's description; prompt: the user's latest prompt (main, when the
+// message stored no text row); judged: v1.1 only.
+export type WhySource = 'captured' | 'spawn' | 'prompt' | 'none' | 'judged'
 
 export type Run = { runner: string; ok: boolean | null; at: number } // ok null: the outcome could not be read
 
@@ -56,26 +58,11 @@ export type Evidence = { changes: number; testsAfter: number; noWhy: number; rev
 
 export type AgentState = 'running' | 'done' | 'idle'
 
-export type AgentRow = {
-  id: string // agentId or 'main'
-  tag: string
-  model: string
-  description: string
-  state: AgentState
-  elapsedMs?: number
-  last?: { at: number; tool: string; target: string }
-  evidence: Evidence
-  activity: string // e.g. '3 edits · 7 reads · 2 asked'
-}
+// One agent in the header legend; `color` is a theme key shared by its tag and its cards' frames.
+export type Legend = { id: string; tag: string; color: string; state: AgentState; changes: number }
 
-export type FileSpan = Span & { overlap: boolean }
-
-export type FileRow = {
-  path: string
-  agents: { id: string; tag: string; state: AgentState; spans: FileSpan[]; lastAt: number }[]
-  overlap?: Span // the first intersection of two agents' spans
-  lastAt: number
-}
+// One path: who changed it and where two agents' spans first intersect. Feeds the conflict count and Next steps.
+export type FileRow = { path: string; agents: { id: string; tag: string }[]; overlap?: Span }
 
 export type View = {
   repo: string
@@ -83,22 +70,16 @@ export type View = {
   changes: number
   files: number
   running: number
-  agents: AgentRow[]
-  hiddenDone: number // done agents collapsed behind `show all`
-  evidence: Evidence
+  legend: Legend[]
   conflicts: { files: number; overlapping: number }
-  mode: 'feed' | 'files'
   filter?: string // agent id
   pathFilter?: string
-  focusPath?: string
   tagWidth: 12 | 18
-  feed: Change[]
-  fileRows: FileRow[]
-  expanded: string[] // change ids drawn in full
+  feed: Change[] // newest first, one page
+  explained: Record<string, { how: string[]; next: string[] }> // per change id on this page, derived from the hunk and the evidence
+  expanded: string[] // change ids drawn with the whole hunk
   page: number
   pages: number
-  filePage: number
-  filePages: number
 }
 
 export type StoreRow = ({ kind: 'change' } & Change) | ({ kind: 'agent' } & Agent)

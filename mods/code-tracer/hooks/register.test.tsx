@@ -2,7 +2,6 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { EngineInterface as Engine, On } from 'claude-code'
 
 const T0 = 1_800_000_000_000
-const COLUMNS = [60, 70, 90] as const
 const DIR = '/home/.claude/code-tracer/repo'
 
 const pane = (bodyColumns: number) =>
@@ -45,17 +44,10 @@ const world = (on: On) => {
           : a.includes(' grep ')
             ? Array.from({ length: state.importers }, (_, i) => `src/user${i}.ts`).join('\n')
             : ''
-    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    return { value: { exitCode: 0, stdout, stderr: '', signal: null } }
   })
-  on('fs.read', async (_, e) => {
-    const text = state.written[e.path]
-    if (text === undefined) throw new Error('ENOENT')
-    return { value: text }
-  })
-  on('fs.write', async (_, e) => {
-    state.written[e.path] = e.text
-    return { value: undefined }
-  })
+  on('fs.write', async (_, e) => ((state.written[e.path] = String((e as { text?: unknown; data?: unknown }).text ?? (e as { data?: unknown }).data)), { value: undefined }))
+  on('fs.read', async (_, e) => ({ value: state.written[e.path] ?? '' }))
   on('fs.list', async (_, e) => ({
     value: Object.keys(state.written)
       .filter(p => p.startsWith(`${e.path}/`))
@@ -112,14 +104,13 @@ const complete = ($: Engine, agentId: string | undefined) =>
 
 const said = (text: string, tool_use_id: string): Msg[] => [{ role: 'assistant', text, toolUses: [{ tool_use_id, tool: 'Edit', input: {} }] }]
 
-const NO_QUOTIENT = /\d+\/10\b/
-
-test('header, conflict strip, tags and meta lines hold at 60, 70 and 90 columns', async ($, on) => {
+test('cards at 60 and 90 columns: head, marks, code, why / how / next steps; legend filters; two agents on one file are named', async ($, on) => {
   const { clock, state } = world(on)
   await start($, clock)
   await spawn($, 'a')
   await spawn($, 'b')
   state.messages.a = said('Expiry check used < so a token valid at :00 was refused.', 'tu1')
+  state.messages.main = [{ role: 'user', text: 'Rename foo to bar everywhere.', toolUses: [] }, ...said('', 'tu3')]
   await edit($, 'a', 'tu1', '/repo/src/auth/token.ts', 'if (exp < now)', 'if (exp <= now)')
   await edit($, 'b', 'tu2', '/repo/src/auth/token.ts', 'if (exp <= now)', 'if (exp <= now + 1)')
   await edit($, undefined, 'tu3', '/repo/src/other.ts', 'foo(a)', 'bar(a)')
@@ -128,103 +119,104 @@ test('header, conflict strip, tags and meta lines hold at 60, 70 and 90 columns'
   await complete($, 'a')
   await clock.settle()
 
-  for (const columns of COLUMNS) {
+  for (const columns of [60, 90] as const) {
     const ui = await $.ui.mount(pane(columns))
-    // one line at or above 90 columns when it fits, else three lines
-    const three = [await ui.find({ key: 'head1' }), await ui.find({ key: 'head2' }), await ui.find({ key: 'head3' })]
-    const heads = three[0] ? three : [await ui.find({ key: 'head' })]
-    for (const line of heads) {
-      expect(line).toBeDefined()
-      expect(line!.text.length).toBeLessThanOrEqual(columns)
-      expect(line!.text).not.toMatch(NO_QUOTIENT)
-    }
-    expect(await ui.find({ type: 'Text', text: /3 changes · 2 files · 3 agents \(1 running\)/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /tests ran after 1 of 3 · 2 no why · 1 shared file/ })).toBeDefined()
-    const conflict = await ui.find({ key: 'conflict' })
-    expect(conflict).toBeDefined()
-    expect(conflict!.text.indexOf('⚠')).toBe(0)
-    expect(conflict!.text).toMatch(/1 shared file · 1 overlap/)
-    // two agents of one type: two tags, identical in AGENTS, the feed and the file view
-    expect(await ui.find({ key: 'filter:a' })).toBeDefined()
+    const head = await ui.find({ key: 'head' })
+    expect(head!.text).toMatch(/3 changes · 2 files · 3 agents/)
+    expect(head!.text).toMatch(/repo ⎇ feat\/x/)
+    expect((await ui.find({ key: 'conflict' }))!.text).toMatch(/^⚠ 1 shared file · 1 overlap/)
+    // legend: main first, then the two same-type agents with distinct tags
+    expect((await ui.find({ key: 'filter:main' }))!.text).toMatch(/main/)
     expect((await ui.find({ key: 'filter:a' }))!.text).toMatch(/test-enginee\b/)
     expect((await ui.find({ key: 'filter:b' }))!.text).toMatch(/test-engin#2/)
-    for (const line of [await ui.find({ key: 'state:a' }), await ui.find({ key: 'state:b' }), await ui.find({ key: 'state:main' })]) {
-      expect(line).toBeDefined()
-      expect(line!.text).not.toMatch(NO_QUOTIENT)
-    }
-    // the feed meta line: time, glyph, tag, path with ≥ 20 cells; the test token on the line or its sub-line
-    const meta = await ui.find({ key: 'meta:sess-abc-3' })
-    expect(meta).toBeDefined()
-    expect(meta!.text.length).toBeLessThanOrEqual(columns)
-    expect(meta!.text).toMatch(/^\d\d:\d\d [▶✓·] main\s+src\/other\.ts:41/)
-    const sub = await ui.find({ key: 'sub:sess-abc-3' })
-    expect(`${meta!.text} ${sub?.text ?? ''}`).toMatch(/\+1 −1 · ✓ tested pnpm test/)
-    expect((await ui.find({ key: 'meta:sess-abc-1' }))!.text).toMatch(/test-enginee\s+src\/auth\/token\.ts:41/)
-    expect((await ui.find({ key: 'meta:sess-abc-2' }))!.text).toMatch(/test-engin#2\s+src\/auth\/token\.ts:41/)
-    expect((await ui.find({ key: 'amb:sess-abc-1' }))!.text).toMatch(/ambition \+\d\s+.*\+1 behaviour · \+1 why/)
-    expect((await ui.find({ key: 'why:sess-abc-1' }))!.text).toMatch(/why\s+Expiry check used </)
-    expect(await ui.find({ type: 'Text', text: /^\s+\+if \(exp <= now\)$/ })).toBeDefined()
-    await ui.press({ key: 'mode' })
-    expect((await ui.find({ key: 'heading' }))!.text).toMatch(/^FILES · lines as of now/)
-    const row = await ui.find({ key: 'frow:src/auth/token.ts' })
-    expect(row!.text).toMatch(/^⚠ 2 agents · overlap 41/)
-    expect((await ui.find({ key: 'fa:src/auth/token.ts:a' }))!.text).toMatch(/test-enginee\s+41⚠\s+last \d\d:\d\d/)
-    expect((await ui.find({ key: 'fa:src/auth/token.ts:b' }))!.text).toMatch(/test-engin#2\s+41⚠/)
-    await ui.press({ key: 'mode' })
+    // newest first: main's card, then b, then a
+    expect(await ui.find({ key: 'card:sess-abc-3' })).toBeDefined()
+    const headA = await ui.find({ key: 'head:sess-abc-1' })
+    expect(headA!.text).toMatch(/^\d\d:\d\d ■ test-enginee\s+src\/auth\/token\.ts:41/)
+    expect((await ui.find({ key: 'marks:sess-abc-1' }))!.text).toBe('+1 −1')
+    expect((await ui.find({ key: 'marks:sess-abc-3' }))!.text).toMatch(/^\+1 −1 · ✓ tested pnpm test$/)
+    expect((await ui.find({ key: 'why:sess-abc-1' }))!.text).toMatch(/^Why\s*Expiry check used </)
+    expect((await ui.find({ key: 'how:sess-abc-1' }))!.text).toMatch(/How it works\s*• Edits lines 41 \(\+1 −1\)\.\s*• 3 files import it: user0\.ts, user1\.ts, user2\.ts\./)
+    expect((await ui.find({ key: 'next:sess-abc-1' }))!.text).toMatch(/Next steps\s*• Check the changes of test-engin#2 in this file\. Lines 41 overlap\.\s*• Run the tests that cover token\.ts\./)
+    expect((await ui.find({ key: 'why:sess-abc-3' }))!.text).toMatch(/^Task\s*Rename foo to bar everywhere\.$/)
+    expect((await ui.find({ key: 'next:sess-abc-3' }))!.text).not.toMatch(/No reason is recorded/)
+    // the code column holds the hunk header and both lines, wrapped, with no `more` for a short hunk
+    expect(await ui.find({ type: 'Text', text: /^@@ 41,1 → 41,1$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^\+if \(exp <= now\)$/ })).toBeDefined()
+    expect(await ui.find({ key: 'more:sess-abc-1' })).toBeUndefined()
+    // two columns at 90, stacked at 60
+    if (columns >= 90) expect(await ui.find({ key: 'left:sess-abc-1' })).toBeDefined()
+    else expect(await ui.find({ key: 'left:sess-abc-1' })).toBeUndefined()
+    expect(await ui.find({ key: 'code:sess-abc-1' })).toBeDefined()
+    // legend press filters to one agent; clear restores
+    await ui.press({ key: 'filter:a' })
+    expect(await ui.find({ key: 'card:sess-abc-1' })).toBeDefined()
+    expect(await ui.find({ key: 'card:sess-abc-2' })).toBeUndefined()
+    expect((await ui.find({ key: 'nav' }))!.text).toMatch(/1 shown · test-enginee/)
+    await ui.press({ key: 'clear' })
+    expect(await ui.find({ key: 'card:sess-abc-2' })).toBeDefined()
     await ui.unmount()
   }
   // Subagent edits do not open the pane; main's does. Agents persist with their tags.
   expect(state.opened).toEqual(['code-tracer'])
   const stored = state.written[`${DIR}/sess-abcdef12.jsonl`]!
-  expect(stored).toBeDefined()
-  const rows = stored.split('\n').map(l => JSON.parse(l) as { kind: string; tag?: string; agentId?: string })
+  const rows = stored.split('\n').map(l => JSON.parse(l) as { kind: string; tag?: string })
   expect(rows.filter(r => r.kind === 'agent').map(r => r.tag)).toEqual(['main', 'test-enginee', 'test-engin#2'])
 })
 
-test('main runs then idles; a Bash-only agent shows its last action; the filtered file view keeps the conflict mark', async ($, on) => {
+test('main shows ▶ while running and its count after; the path button narrows to one file; a long hunk folds behind more', async ($, on) => {
   const { clock } = world(on)
   await start($, clock)
   await $.turn.start({ text: 'go', turnId: 't1' })
+  await edit($, undefined, 'tu1', '/repo/src/a.ts', 'x', 'y')
   await clock.settle()
   let ui = await $.ui.mount(pane(70))
-  expect((await ui.find({ key: 'state:main' }))!.text).toMatch(/^▶ running 0m · 0 changes/)
+  expect((await ui.find({ key: 'filter:main' }))!.text).toMatch(/■ main ▶$/)
   await ui.unmount()
   await complete($, undefined)
   await clock.settle()
   ui = await $.ui.mount(pane(70))
-  expect((await ui.find({ key: 'state:main' }))!.text).toMatch(/^· idle · 0 changes/)
+  expect((await ui.find({ key: 'filter:main' }))!.text).toMatch(/■ main 1$/)
   await ui.unmount()
 
   await spawn($, 'r', 'agent-protocols:code-reviewer')
-  await bash($, 'r', 'tu1', 'cd /repo && rg tokenExpiry src')
-  await spawn($, 'a')
-  await spawn($, 'b')
-  await edit($, 'a', 'tu2', '/repo/src/shared.ts', 'x', 'y')
-  await edit($, 'b', 'tu3', '/repo/src/shared.ts', 'y', 'z')
-  await edit($, 'b', 'tu4', '/repo/src/only-b.ts', 'p', 'q')
-  await complete($, 'a')
+  await bash($, 'r', 'tu2', 'cd /repo && rg tokenExpiry src')
+  await edit($, undefined, 'tu3', '/repo/src/b.ts', 'p', 'q')
+  await $.tool.call({ tool: 'Write', file_path: '/repo/src/long.ts', content: Array.from({ length: 12 }, (_, i) => `line ${i}`).join('\n'), tool_use_id: 'tu4' } as never)
   await clock.settle()
+  ui = await $.ui.mount(pane(90))
+  // a running agent with no change is in the legend; its tag drops the plugin prefix
+  expect((await ui.find({ key: 'filter:r' }))!.text).toMatch(/code-reviewe ▶$/)
+  // 1 header + 12 lines: 8 shown, 5 behind `more`
+  const more = await ui.find({ key: 'more:sess-abc-3' })
+  expect(more).toBeDefined()
+  expect(more!.text).toMatch(/more \(\+5\)/)
+  expect(await ui.find({ type: 'Text', text: /^\+line 11$/ })).toBeUndefined()
+  await ui.press({ key: 'more:sess-abc-3' })
+  expect(await ui.find({ type: 'Text', text: /^\+line 11$/ })).toBeDefined()
+  expect((await ui.find({ key: 'more:sess-abc-3' }))!.text).toMatch(/less/)
+  // the path button keeps only that file's cards
+  await ui.press({ key: 'path:sess-abc-2' })
+  expect(await ui.find({ key: 'card:sess-abc-2' })).toBeDefined()
+  expect(await ui.find({ key: 'card:sess-abc-1' })).toBeUndefined()
+  expect(await ui.find({ key: 'card:sess-abc-3' })).toBeUndefined()
+  expect((await ui.find({ key: 'nav' }))!.text).toMatch(/1 shown · src\/b\.ts/)
+  expect((await ui.find({ key: 'path:sess-abc-2' }))!.text).toMatch(/all files/)
+  await ui.press({ key: 'path:sess-abc-2' })
+  expect(await ui.find({ key: 'card:sess-abc-1' })).toBeDefined()
+  await ui.unmount()
 
-  ui = await $.ui.mount(pane(70))
-  expect((await ui.find({ key: 'filter:r' }))!.text).toMatch(/code-reviewe/)
-  expect((await ui.find({ key: 'state:r' }))!.text).toMatch(/^▶ running/)
-  expect((await ui.find({ key: 'last:r' }))!.text).toMatch(/last \d\d:\d\d Bash rg tokenExpiry src$/)
-  expect((await ui.find({ key: 'ev:r' }))!.text).toMatch(/0 edits · 1 read · claude-haiku-5-5 · r$/)
-  await ui.press({ key: 'filter:a' })
-  await ui.press({ key: 'mode' })
-  expect((await ui.find({ key: 'frow:src/shared.ts' }))!.text).toMatch(/⚠ 2 agents · overlap 41/)
-  expect(await ui.find({ key: 'frow:src/only-b.ts' })).toBeUndefined() // a never touched it
-  await ui.press({ key: 'clear' })
-  expect(await ui.find({ key: 'frow:src/only-b.ts' })).toBeDefined()
-  expect((await ui.find({ key: 'frow:src/only-b.ts' }))!.text).toMatch(/1 agent/)
-  await ui.press({ key: 'path:src/only-b.ts' })
-  expect((await ui.find({ key: 'heading' }))!.text).toMatch(/^CHANGES · src\/only-b\.ts/)
-  expect(await ui.find({ key: 'meta:sess-abc-3' })).toBeDefined()
-  expect(await ui.find({ key: 'meta:sess-abc-2' })).toBeUndefined()
+  // a reload runs session.start again with the state kept and the module's counters reset: ids continue
+  await start($, clock)
+  await edit($, undefined, 'tu5', '/repo/src/c.ts', 'm', 'n')
+  await clock.settle()
+  ui = await $.ui.mount(pane(90))
+  expect(await ui.find({ key: 'card:sess-abc-4' })).toBeDefined()
+  expect((await ui.find({ key: 'head' }))!.text).toMatch(/4 changes/)
   await ui.unmount()
 })
 
-test('a failed then passing run shows ✓ once; README gets no test token; export carries the signed sum', async ($, on) => {
+test('a failed then passing run shows ✓ once and changes the next step; README gets no test token; export carries the signed sum', async ($, on) => {
   const { clock, state } = world(on)
   await start($, clock)
   state.messages.main = said('Add a parser so callers stop hand-rolling it.', 'tu1')
@@ -235,22 +227,20 @@ test('a failed then passing run shows ✓ once; README gets no test token; expor
   await bash($, undefined, 'tu4', 'npx vitest run')
   await clock.settle()
   let ui = await $.ui.mount(pane(90))
-  expect((await ui.find({ key: 'meta:sess-abc-1' }))!.text).toMatch(/✗ tested vitest/)
-  expect((await ui.find({ key: 'head' }))!.text).toMatch(/tests ran after 1 of 3/)
+  expect((await ui.find({ key: 'marks:sess-abc-1' }))!.text).toMatch(/✗ tested vitest/)
+  expect((await ui.find({ key: 'next:sess-abc-1' }))!.text).toMatch(/• Fix the failing vitest run\./)
   await ui.unmount()
   await bash($, undefined, 'tu5', 'npx vitest run')
   await clock.settle()
   ui = await $.ui.mount(pane(90))
-  const parse = await ui.find({ key: 'meta:sess-abc-1' })
-  expect(parse!.text).toMatch(/src\/parse\.ts:1-3\s+\+3 −0 · ✓ tested vitest · new$/)
-  expect(parse!.text).not.toMatch(/✗/)
-  expect((await ui.find({ key: 'head' }))!.text).toMatch(/tests ran after 1 of 3 · 2 no why/)
-  expect((await ui.find({ key: 'meta:sess-abc-3' }))!.text).not.toMatch(/tested/)
-  expect((await ui.find({ key: 'amb:sess-abc-1' }))!.text).toMatch(/ambition \+\d+\s+\+2 adds export parse · \+2 test touched src\/parse\.test\.ts · \+2 imported by 3 · \+1 behaviour · \+1 why · \+2 ✓ tested vitest/)
-  expect((await ui.find({ key: 'amb:sess-abc-3' }))!.text).toMatch(/ambition \+\d+\s+.*reach unknown/)
-  expect((await ui.find({ key: 'why:sess-abc-3' }))!.text).toMatch(/^\s+why —$/)
-  await ui.press({ key: 'more:sess-abc-1' })
-  expect(await ui.find({ type: 'Text', text: /@@ 1,0 → 1,3/ })).toBeDefined()
+  const marks = await ui.find({ key: 'marks:sess-abc-1' })
+  expect(marks!.text).toBe('+3 −0 · ✓ tested vitest · new')
+  expect((await ui.find({ key: 'head:sess-abc-1' }))!.text).toMatch(/■ main\s+src\/parse\.ts:1-3/)
+  expect((await ui.find({ key: 'how:sess-abc-1' }))!.text).toMatch(/• New file with 3 lines\.\s*• Adds parse\.\s*• 3 files import it: user0\.ts, user1\.ts, user2\.ts\./)
+  expect((await ui.find({ key: 'next:sess-abc-1' }))!.text).toMatch(/• The tests pass\. No step is necessary\./)
+  expect((await ui.find({ key: 'marks:sess-abc-3' }))!.text).not.toMatch(/tested/)
+  expect((await ui.find({ key: 'why:sess-abc-3' }))!.text).toMatch(/^Why\s*—$/)
+  expect((await ui.find({ key: 'next:sess-abc-3' }))!.text).toMatch(/• No reason is recorded\. Ask main\./)
   await ui.unmount()
 
   const r = await $.command.run({ command: 'code-tracer', args: 'export', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } } as never)
@@ -260,5 +250,5 @@ test('a failed then passing run shows ✓ once; README gets no test token; expor
   expect(md).toContain('### src/parse.ts:1-3')
   expect(md).toContain('**Why:** Add a parser so callers stop hand-rolling it.')
   expect(md).toMatch(/\*\*Ambition \+\d+:\*\* \+2 adds export parse/)
-  expect(md).not.toMatch(NO_QUOTIENT)
+  expect(md).not.toMatch(/\d+\/10\b/)
 })

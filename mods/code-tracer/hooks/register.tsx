@@ -1,15 +1,16 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Engine, Register } from 'claude-code'
 
-import type { Agent, Change, StoreRow, View } from '../types'
+import type { Agent, Change, Legend, StoreRow, View } from '../types'
 import { changeOf, normalizePath, patchesFromBash, patchesFromEdit } from './capture.ts'
 import { ellipsize } from './ellipsis.ts'
+import { explain } from './explain.ts'
 import { toMarkdown } from './export.ts'
 import { drawPane } from './pane'
 import { importersOf, reachQuery } from './reach.ts'
 import { bashTarget, detectRun, isReadCommand, revertedPaths } from './runs.ts'
-import { agentOf, agentRows, attachRun, evidenceOf, fileRows, rescore } from './score.ts'
-import { tagsFor } from './tags.ts'
+import { agentOf, attachRun, fileRows, rescore } from './score.ts'
+import { colorFor, tagsFor } from './tags.ts'
 import { whyOf } from './why.ts'
 
 const view = atom({ plugin: 'code-tracer', key: 'view' } as const, null)
@@ -18,8 +19,6 @@ const agents = atom({ plugin: 'code-tracer', key: 'agents' } as const, [] as Age
 
 const PANE = 'code-tracer'
 const PAGE_SIZE = 20
-const FILE_PAGE_SIZE = 30
-const SHOWN_DONE = 3
 // RegExps: Grep, Glob and MultiEdit are not registered on every build, and a string filter on a missing tool fails.
 const EDIT_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/
 const READ_TOOLS = /^(Read|Grep|Glob|WebFetch|WebSearch)$/
@@ -37,13 +36,9 @@ const st = {
   seq: 0,
   part: 0, // store part: `<session>.jsonl`, then `<session>-1.jsonl` after a /clear
   page: 0,
-  filePage: 0,
-  mode: 'feed' as View['mode'],
   filter: undefined as string | undefined,
   pathFilter: undefined as string | undefined,
-  focusPath: undefined as string | undefined,
   expanded: [] as string[],
-  showAll: false,
   tagWidth: undefined as 12 | 18 | undefined, // fixed at the first render
   reach: new Map<string, string[] | undefined>(), // path → importer paths, once per path per session
   lastOk: new Map<string, number>(), // `<agent>:<test|check>` → time of the last passing run
@@ -168,42 +163,43 @@ const redraw = async ($: Engine) => {
   const mine = ++st.drawSeq
   const all = await read($, changes)
   const known = await read($, agents)
-  const now = await $.clock.now()
-  const rows = agentRows(all, known, now)
-  const done = rows.filter(r => r.state === 'done')
-  const hiddenDone = st.showAll ? 0 : Math.max(0, done.length - SHOWN_DONE)
-  const shownRows = hiddenDone ? rows.filter(r => r.state !== 'done' || done.indexOf(r) < SHOWN_DONE) : rows
   const allFiles = fileRows(all, known)
+  // Legend: main first, then subagents in spawn order; an agent shows once it changed something or still runs.
+  const spawned = known.filter(a => a.agentId !== 'main')
+  const legend: Legend[] = known
+    .map(a => ({ a, mine: all.filter(c => agentOf(c) === a.agentId).length }))
+    .filter(({ a, mine }) => a.agentId === 'main' || mine > 0 || !a.endedAt)
+    .map(
+      ({ a, mine }): Legend => ({
+        id: a.agentId,
+        tag: a.tag,
+        color: colorFor(a.agentId, spawned.indexOf(a)),
+        state: !a.endedAt ? 'running' : a.agentId === 'main' ? 'idle' : 'done',
+        changes: mine,
+      }),
+    )
+    .sort((x, y) => Number(y.id === 'main') - Number(x.id === 'main'))
   const visible = all.filter(c => (!st.filter || agentOf(c) === st.filter) && (!st.pathFilter || c.path === st.pathFilter))
   const newestFirst = [...visible].reverse()
   const pages = Math.max(1, Math.ceil(newestFirst.length / PAGE_SIZE))
   st.page = Math.min(st.page, pages - 1)
-  const touched = st.filter ? new Set(all.filter(c => agentOf(c) === st.filter).map(c => c.path)) : undefined
-  const files = fileRows(all, known, touched).sort((x, y) => Number(y.path === st.focusPath) - Number(x.path === st.focusPath))
-  const filePages = Math.max(1, Math.ceil(files.length / FILE_PAGE_SIZE))
-  st.filePage = Math.min(st.filePage, filePages - 1)
+  const feed = newestFirst.slice(st.page * PAGE_SIZE, (st.page + 1) * PAGE_SIZE)
   const next: View = {
     repo: st.repo,
     ...(st.branch ? { branch: st.branch } : {}),
     changes: all.length,
     files: new Set(all.map(c => c.path)).size,
-    running: rows.filter(r => r.state === 'running').length,
-    agents: shownRows,
-    hiddenDone,
-    evidence: evidenceOf(all, all),
+    running: legend.filter(a => a.state === 'running').length,
+    legend,
     conflicts: { files: allFiles.filter(f => f.agents.length > 1).length, overlapping: allFiles.filter(f => f.overlap).length },
-    mode: st.mode,
     ...(st.filter ? { filter: st.filter } : {}),
     ...(st.pathFilter ? { pathFilter: st.pathFilter } : {}),
-    ...(st.focusPath ? { focusPath: st.focusPath } : {}),
     tagWidth: tagWidth(),
-    feed: newestFirst.slice(st.page * PAGE_SIZE, (st.page + 1) * PAGE_SIZE),
-    fileRows: files.slice(st.filePage * FILE_PAGE_SIZE, (st.filePage + 1) * FILE_PAGE_SIZE),
+    feed,
+    explained: Object.fromEntries(feed.map(c => [c.id, explain(c, all, known, allFiles.find(f => f.path === c.path))])),
     expanded: st.expanded,
     page: st.page,
     pages,
-    filePage: st.filePage,
-    filePages,
   }
   if (mine !== st.drawSeq) return
   await update($, view, prev => (mine === st.drawSeq ? next : prev))
@@ -307,6 +303,8 @@ export const register: Register = on => {
       const z = (await run($, ['date', '+%z'])) ?? '+0000'
       st.tz = (z.startsWith('-') ? -1 : 1) * (Number(z.slice(1, 3)) * 60 + Number(z.slice(3, 5)))
       const stored = await load($)
+      // `st` restarts on a reload while `$.state` keeps its rows: the next id follows both the state and the disk.
+      st.seq = Math.max(st.seq, ...(await read($, changes)).map(c => Number(c.id.split('-').at(-1)) || 0))
       if (stored.changes.length) {
         st.seq = Math.max(st.seq, ...stored.changes.map(c => Number(c.id.split('-').at(-1)) || 0))
         for (const c of stored.changes)
@@ -339,9 +337,7 @@ export const register: Register = on => {
       st.expanded = []
       st.filter = undefined
       st.pathFilter = undefined
-      st.focusPath = undefined
       st.page = 0
-      st.filePage = 0
       st.hasAutoOpened = false
       await update($, changes, () => [])
       await update($, agents, prev => prev.map(a => (a.endedAt ? a : { ...a, endedAt: at })))
@@ -449,20 +445,25 @@ export const register: Register = on => {
         .then(() => redraw($))
         .catch(() => {})
     }
-    if (!v) return <Text dimColor>Code tracer loading…</Text>
+    if (!v || !Array.isArray(v.legend) || !v.explained) {
+      // No view yet, or one an earlier version of this mod stored: redraw after this hook settles.
+      if (v) void Promise.resolve().then(() => redraw($)).catch(() => {})
+      return <Text dimColor>Code tracer loading…</Text>
+    }
     const go = (fn: () => void) => async () => {
       fn()
       await redraw($)
     }
     const handlers = {
-      mode: go(() => {
-        st.mode = st.mode === 'feed' ? 'files' : 'feed'
-      }),
       filter: (id: string) =>
         go(() => {
           st.filter = st.filter === id ? undefined : id
           st.page = 0
-          st.filePage = 0
+        }),
+      path: (path: string) =>
+        go(() => {
+          st.pathFilter = st.pathFilter === path ? undefined : path
+          st.page = 0
         }),
       expand: (id: string) =>
         go(() => {
@@ -472,37 +473,10 @@ export const register: Register = on => {
         go(() => {
           st.page = Math.max(0, st.page + delta)
         }),
-      filePage: (delta: number) =>
-        go(() => {
-          st.filePage = Math.max(0, st.filePage + delta)
-        }),
-      showConflicts: go(() => {
-        st.mode = 'files'
-        st.filter = undefined
-        st.pathFilter = undefined
-        st.focusPath = undefined
-        st.filePage = 0
-      }),
       clear: go(() => {
         st.filter = undefined
         st.pathFilter = undefined
         st.page = 0
-        st.filePage = 0
-      }),
-      file: (path: string) =>
-        go(() => {
-          if (st.mode === 'feed') {
-            st.mode = 'files'
-            st.focusPath = path
-            st.filePage = 0
-          } else {
-            st.mode = 'feed'
-            st.pathFilter = path
-            st.page = 0
-          }
-        }),
-      showAll: go(() => {
-        st.showAll = true
       }),
     }
     return drawPane({ Box, Text, Button }, v, e.props.bodyColumns, st.tz, handlers)

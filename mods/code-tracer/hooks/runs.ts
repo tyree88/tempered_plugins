@@ -8,7 +8,7 @@ const PREFIX = /^(npx\s+|pnpm\s+((exec|run|-r|--filter\s+\S+)\s+)?|yarn\s+(run\s
 const PM_TEST = /^(npm|pnpm|yarn)\s+(t\b|((run|-r|--filter\s+\S+)\s+)?test(:\S+)?\b)/
 const TEST = /^(vitest|jest|mocha|pytest|cargo\s+test|go\s+test|bun\s+test|node\s+--test|claude\s+plugin\s+test)\b/
 const CHECK = /^(tsc|eslint|cargo\s+(check|build)|npm\s+run\s+(check|build|lint)|pnpm\s+(check|build|lint)|claude\s+plugin\s+validate)\b/
-const READ_VERBS = /^(grep|rg|find|ls|cat|head|tail|sed|awk)\b/
+const READ_VERBS = /^(grep|rg|find|ls|cat|head|tail|sed|awk|wc|which|git\s+(status|log|diff|show|grep|branch|rev-parse))\b/
 
 // Pipeline segments with the separator that follows each. shortcut: quotes are not parsed, so a `&&` inside a
 // string splits; upgrade if a real command misreads.
@@ -41,9 +41,11 @@ const SUMMARY: { re: RegExp; ok: boolean }[] = [
   { re: /test result: FAILED/, ok: false },
   { re: /^FAIL\b/m, ok: false },
   { re: /\b[1-9]\d* failed\b/, ok: false },
+  { re: /^\s*[1-9]\d* fail\b/m, ok: false }, // `claude plugin test`: ` 3 pass` / ` 0 fail` lines
   { re: /test result: ok/, ok: true },
   { re: /^ok\b/m, ok: true },
   { re: /\b\d+ passed\b/, ok: true },
+  { re: /^\s*\d+ pass\b/m, ok: true },
 ]
 
 export const summaryOutcome = (output: string): boolean | null => SUMMARY.find(s => s.re.test(output))?.ok ?? null

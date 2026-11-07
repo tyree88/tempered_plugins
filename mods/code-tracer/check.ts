@@ -1,13 +1,14 @@
 // Self-check for the pure logic. Run: node check.ts  (Node 23+ strips types)
 import assert from 'node:assert/strict'
 import { counts, declarations, isCodePath, isCosmetic, isTestPath, normalizePath, patchesFromBash, patchesFromEdit, signatureChanges, spansOf } from './hooks/capture.ts'
-import { ellipsize, ellipsizeAll } from './hooks/ellipsis.ts'
+import { ellipsize } from './hooks/ellipsis.ts'
 import { toMarkdown } from './hooks/export.ts'
 import { importersOf, reachQuery } from './hooks/reach.ts'
-import { bashTarget, detectRun, isReadCommand, revertedPaths } from './hooks/runs.ts'
-import { agentRows, attachRun, evidenceOf, fileRows, namesFile, rescore } from './hooks/score.ts'
+import { bashTarget, detectRun, isReadCommand, revertedPaths, summaryOutcome } from './hooks/runs.ts'
+import { howOf, nextOf } from './hooks/explain.ts'
+import { attachRun, evidenceOf, fileRows, namesFile, rescore } from './hooks/score.ts'
 import { rebasePath, type Placed } from './hooks/spans.ts'
-import { tagsFor } from './hooks/tags.ts'
+import { colorFor, tagsFor } from './hooks/tags.ts'
 import { firstSentence, whyOf } from './hooks/why.ts'
 import type { Agent, Change } from './types/index.d.ts'
 
@@ -96,6 +97,10 @@ assert.deepEqual(detectRun('claude plugin validate mods/x', ok), { kind: 'check'
 assert.equal(detectRun('vitest', { isError: true, interrupted: true, output: '' }), undefined)
 assert.equal(isReadCommand('cd /repo && rg tokenExpiry src'), true)
 assert.equal(isReadCommand('ls -la'), true)
+assert.equal(isReadCommand('cd mods/x && wc -l hooks/*.ts && cat check.ts'), true)
+assert.equal(isReadCommand('git -C /repo log --oneline -5'), false) // shortcut: `git -C <dir> <verb>` is not parsed; upgrade when it misreads often
+assert.equal(isReadCommand('git status --short && git log --oneline -3'), true)
+assert.equal(isReadCommand('git checkout -- src/a.ts'), false)
 assert.equal(isReadCommand('pnpm test'), false)
 assert.deepEqual(revertedPaths('git checkout -- src/auth/token.ts src/b.ts'), ['src/auth/token.ts', 'src/b.ts'])
 assert.deepEqual(revertedPaths('git restore src/a.ts && pnpm test'), ['src/a.ts'])
@@ -127,10 +132,6 @@ assert.equal(ellipsize('app/dashboard/settings/page.tsx', 30), 'app/…/settings
 assert.equal(ellipsize('app/dashboard/settings/page.tsx', 20), '…/settings/page.tsx')
 assert.equal(ellipsize('app/dashboard/settings/page.tsx', 14), '…/s…/page.tsx')
 assert.equal(ellipsize('app/components/NotificationPreferences.tsx', 24), '…/NotificationPrefe….tsx')
-const two = ellipsizeAll(['app/settings/page.tsx', 'app/profile/page.tsx'], 20)
-assert.equal(new Set(two).size, 2)
-const twins = ellipsizeAll(['a/b/c/settings/page.tsx', 'a/x/c/settings/page.tsx'], 24)
-assert.equal(new Set(twins).size, 2, twins.join())
 
 // completeness and rescoring over the whole session
 const cfg = change({ path: 'tsconfig.json', hunks: [hunk(1, ['+"strict": true'])] })
@@ -186,18 +187,30 @@ const sub: Agent = { agentId: 's1', type: 'test-engineer', tag: 'test-enginee', 
 const subChange = change({ path: 'src/sub.ts', agentId: 's1', at: 7 })
 assert.equal(attachRun([subChange], [...agents, sub], { kind: 'check', runner: 'tsc', ok: true, at: 8 }, 'main', new Map())[0]!.check?.ok, true) // main's run covers an ended subagent
 
-// agent rows and evidence
-const rows = agentRows([change({ at: 1 }), change({ agentId: 'a1', path: 'src/b.ts', at: 2 })], [{ ...agents[0]!, endedAt: 5, edits: 1, reads: 2 }, { agentId: 'a1', type: 'test-engineer', tag: 'test-enginee', description: 'write tests', model: 'haiku', startedAt: 0, endedAt: 1, reads: 2, edits: 1, asks: 0 }, { agentId: 'a2', type: 'reviewer', tag: 'reviewer', description: '', model: 'sonnet', startedAt: 3, reads: 0, edits: 0, asks: 0, lastAt: 4, lastTool: 'Bash', lastTarget: 'rg x' }], 10)
-assert.deepEqual(rows.map(r => [r.id, r.state]), [['a2', 'running'], ['main', 'idle'], ['a1', 'done']])
-assert.equal(rows[0]!.elapsedMs, 7)
-assert.equal(rows.find(r => r.id === 'a1')?.activity, '1 edit · 2 reads')
-assert.deepEqual(rows.find(r => r.id === 'main')?.evidence, { changes: 1, testsAfter: 0, noWhy: 0, reverted: 0, sharedFiles: 0 })
+// evidence, files and the derived explanation
 const shared = [change({ path: 'src/s.ts', at: 1 }), change({ path: 'src/s.ts', agentId: 'a1', at: 2, hunks: [hunk(1, ['-b', '+c'])] })]
 assert.equal(evidenceOf(shared, shared).sharedFiles, 1)
 const files = fileRows(shared, [agents[0]!, { ...sub, agentId: 'a1' }])
 assert.equal(files[0]?.agents.length, 2)
 assert.deepEqual(files[0]?.overlap, { from: 1, to: 1 })
-assert.ok(files[0]?.agents.every(a => a.spans[0]?.overlap))
+assert.deepEqual(files[0]?.agents.map(a => a.tag), ['main', 'test-enginee'])
+assert.equal(colorFor('main', 0), 'text')
+assert.notEqual(colorFor('a', 0), colorFor('b', 1)) // two subagents, two colours
+assert.equal(colorFor('x', 8), colorFor('y', 0)) // the palette wraps
+
+const sharedAgents = [agents[0]!, { ...sub, agentId: 'a1' }]
+assert.deepEqual(howOf(change({ hunks: [hunk(41, ['-if (a < b)', '+if (a <= b)'])], importerPaths: ['src/x.ts', 'src/y.ts'] })), ['Edits lines 41 (+1 −1).', '2 files import it: x.ts, y.ts.'])
+assert.deepEqual(howOf(change({ isNew: true, hunks: [hunk(1, ['+export function parse(s: string) {', '+  return s', '+}'])], importerPaths: [] })), ['New file with 3 lines.', 'Adds parse.', 'No file imports it.'])
+assert.deepEqual(howOf(change({ hunks: [hunk(3, ['-  x', '+x'])] })), ['Changes only whitespace or comments.', 'No file imports it.'])
+assert.deepEqual(howOf(change({ isDeleted: true, hunks: [] })), ['The file is deleted.'])
+assert.deepEqual(nextOf(shared[0]!, shared, sharedAgents, files[0]), ['Check the changes of test-enginee in this file. Lines 1 overlap.', 'Run the tests that cover s.ts.'])
+assert.deepEqual(nextOf(change({ why: '', whySource: 'none', test: { runner: 'vitest', ok: true, at: 2 } }), [], sharedAgents, undefined), ['No reason is recorded. Ask main.'])
+assert.deepEqual(nextOf(change({ test: { runner: 'vitest', ok: false, at: 2 }, why: 'because' }), [], sharedAgents, undefined), ['Fix the failing vitest run.'])
+assert.deepEqual(nextOf(change({ test: { runner: 'vitest', ok: true, at: 2 }, why: 'because' }), [], sharedAgents, undefined), ['The tests pass. No step is necessary.'])
+assert.deepEqual(nextOf(change({ isReverted: true }), [], sharedAgents, undefined), ['The change is reverted. No step is necessary.'])
+const implX = change({ path: 'src/parse.ts', why: 'w' })
+const testOnlyX = change({ path: 'src/parse.test.ts', why: 'w' })
+assert.deepEqual(nextOf(implX, [implX, testOnlyX], sharedAgents, undefined), ['Run parse.test.ts. It is changed but not run.'])
 
 // why
 assert.equal(firstSentence('Fix the expiry check. Then add tests.'), 'Fix the expiry check.')
@@ -207,6 +220,33 @@ const msgs = [
   { role: 'assistant' as const, text: '', toolUses: [{ tool_use_id: 'tu1' }] },
 ]
 assert.deepEqual(whyOf(msgs, 'tu1', 'write tests'), { why: 'Expiry used < so a token valid at :00 was refused.', whySource: 'captured' })
+// one model message stored as rows: its text, then one row per tool use; the results follow as user rows.
+// The text is found behind parallel tool rows; it is never taken from an earlier message across a user row.
+const msg = [
+  { role: 'assistant' as const, text: 'Old reason from an earlier message.', toolUses: [{ tool_use_id: 'old' }] },
+  { role: 'user' as const, text: '', toolUses: [], toolResults: [{ tool_use_id: 'old' }] },
+  { role: 'assistant' as const, text: 'Bump the version so the tracer sees it.', toolUses: [] },
+  { role: 'assistant' as const, text: '', toolUses: [{ tool_use_id: 'plan' }] },
+  { role: 'assistant' as const, text: '', toolUses: [{ tool_use_id: 'tu2' }] },
+  { role: 'user' as const, text: '', toolUses: [], toolResults: [{ tool_use_id: 'plan' }] },
+  { role: 'user' as const, text: '', toolUses: [], toolResults: [{ tool_use_id: 'tu2' }] },
+]
+assert.deepEqual(whyOf(msg, 'tu2', ''), { why: 'Bump the version so the tracer sees it.', whySource: 'captured' })
+assert.deepEqual(whyOf(msg, 'plan', ''), { why: 'Bump the version so the tracer sees it.', whySource: 'captured' })
+assert.deepEqual(whyOf([msg[0]!, msg[1]!, ...msg.slice(3)], 'tu2', 'spawned'), { why: 'spawned', whySource: 'spawn' }) // a message with no text row: never the earlier message's sentence
+// main, no text row and no description: the latest user prompt, without host blocks; a result-only user row is skipped
+const prompted = [
+  { role: 'user' as const, text: 'Make the pane show cards. Then colour them.', toolUses: [] },
+  { role: 'assistant' as const, text: '', toolUses: [{ tool_use_id: 'a' }] },
+  { role: 'user' as const, text: '', toolUses: [] },
+  { role: 'user' as const, text: '<system-reminder>\nignore this\n</system-reminder>', toolUses: [] },
+  { role: 'assistant' as const, text: '', toolUses: [{ tool_use_id: 'tu3' }] },
+]
+assert.deepEqual(whyOf(prompted, 'tu3', ''), { why: 'Make the pane show cards.', whySource: 'prompt' })
+assert.deepEqual(whyOf(prompted.slice(1), 'tu3', ''), { why: '', whySource: 'none' })
+assert.equal(summaryOutcome(' 3 pass\n 0 fail\nRan 3 tests across 1 file.'), true)
+assert.equal(summaryOutcome(' 2 pass\n 1 fail\nRan 3 tests across 1 file.'), false)
+assert.equal(summaryOutcome('Ran 3 tests'), null)
 assert.deepEqual(whyOf([], 'tu9', 'write tests'), { why: 'write tests', whySource: 'spawn' })
 assert.deepEqual(whyOf([], 'tu9', ''), { why: '', whySource: 'none' })
 

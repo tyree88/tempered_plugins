@@ -1,7 +1,7 @@
 {
   "name": "code-tracer",
-  "version": "0.2.0",
-  "description": "Side pane of every code change in the session, tied to the code: file and lines, the diff hunk, the agent that made it, its stated why, the test run that covered it, and a signed ambition sum with its signals; marks files two agents changed. No model calls.",
+  "version": "0.3.0",
+  "description": "Side pane of every code change in the session as cards in the agent's colour: the wrapped diff on the left; why, how it works and what we can do on the right, derived from the hunk, the importers and the test runs. Marks files two agents changed. No model calls.",
   "author": {
     "name": "Tempered Works"
   },

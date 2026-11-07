@@ -16,7 +16,7 @@ export function toMarkdown(repo: string, branch: string | undefined, changes: re
     for (const c of changes.filter(c => agentOf(c) === id)) {
       const lines = where(c)
       out.push(`### ${c.path}${lines ? `:${lines}` : ''} · +${c.additions} −${c.deletions}${c.isDeleted ? ' · deleted' : c.isTooLarge ? ' · diff too large' : ''}`)
-      out.push(`**Why:** ${c.why || '—'}  `)
+      out.push(`**${c.whySource === 'spawn' || c.whySource === 'prompt' ? 'Task' : 'Why'}:** ${c.why || '—'}  `)
       if (c.points !== undefined) out.push(`**Ambition ${sign(c.points)}:** ${c.signals.map(s => (s.pts ? `${sign(s.pts)} ${s.label}` : s.label)).join(' · ')}`)
       if (c.hunks.length) out.push('', '```diff', ...c.hunks.flatMap(h => [`@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`, ...h.lines]), '```')
       out.push('')

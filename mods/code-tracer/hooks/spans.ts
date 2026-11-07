@@ -56,4 +56,3 @@ export function rebasePath(hunks: readonly Placed[]): Rebased {
   return { spans, churn, overlaps }
 }
 
-export const intersects = (x: Span, y: Span) => meet(x, y) !== undefined

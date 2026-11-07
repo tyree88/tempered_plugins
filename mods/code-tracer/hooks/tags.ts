@@ -1,3 +1,8 @@
+// Agent colours: theme keys in spawn order, so a colour follows the person's theme; `main` is the plain text colour.
+// success, error and warning are not in the palette: they mean run outcomes and conflicts.
+const PALETTE = ['claude', 'suggestion', 'permission', 'planMode', 'autoAccept', 'remember', 'ide', 'merged'] as const
+export const colorFor = (id: string, spawnIndex: number) => (id === 'main' ? 'text' : PALETTE[spawnIndex % PALETTE.length]!)
+
 // Agent tags: the subagent type without its `<plugin>:` prefix, cut to the tag width; colliding drawn strings get `#N`.
 export const stripPlugin = (type: string) => type.replace(/^[\w.-]+:/, '')
 
