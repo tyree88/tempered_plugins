@@ -1,10 +1,19 @@
-import type { Change, Hunk } from '../types'
+import type { Change, Hunk, Span } from '../types'
 
-export type Patch = { path: string; hunks: Hunk[]; isNew: boolean; userModified: boolean }
+export type Patch = { path: string; hunks: Hunk[]; isNew: boolean; userModified: boolean; isDeleted?: true; isTooLarge?: true }
 
-// A path under `root` becomes repo-relative; anything else stays as given.
-export const relPath = (path: string, root: string | undefined) =>
-  root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path
+// A relative path is resolved against `cwd`; `.` and `..` segments go; a path under `root` becomes repo-relative.
+export function normalizePath(path: string, cwd: string, root: string | undefined): string {
+  const joined = path.startsWith('/') ? path : `${cwd}/${path}`
+  const out: string[] = []
+  for (const seg of joined.split('/')) {
+    if (seg === '' || seg === '.') continue
+    if (seg === '..') out.pop()
+    else out.push(seg)
+  }
+  const abs = `/${out.join('/')}`
+  return root && abs.startsWith(`${root}/`) ? abs.slice(root.length + 1) : abs
+}
 
 const asHunks = (value: unknown): Hunk[] =>
   Array.isArray(value)
@@ -15,37 +24,35 @@ const asHunks = (value: unknown): Hunk[] =>
     : []
 
 // Edit, Write, MultiEdit and NotebookEdit results all carry `filePath` and `structuredPatch`. Write says `type: 'create'`
-// for a new file; Edit's gitDiff says `status: 'added'`. A result with no hunks is not a change (nothing happened, or
-// the diff was too big to compute) and is skipped.
+// for a new file; Edit's gitDiff says `status: 'added'`. No hunks but gitDiff counts → the diff was too large to show.
 export function patchesFromEdit(result: unknown): Patch[] {
   if (!result || typeof result !== 'object') return []
   const r = result as Record<string, unknown>
+  if (typeof r.filePath !== 'string') return []
   const hunks = asHunks(r.structuredPatch)
-  if (!hunks.length || typeof r.filePath !== 'string') return []
-  const git = r.gitDiff as { status?: string } | undefined
-  return [
-    {
-      path: r.filePath,
-      hunks,
-      isNew: r.type === 'create' || git?.status === 'added' || r.originalFile === null && r.type !== undefined,
-      userModified: r.userModified === true,
-    },
-  ]
+  const git = r.gitDiff as { status?: string; additions?: number; deletions?: number } | undefined
+  const isNew = r.type === 'create' || git?.status === 'added' || (r.originalFile === null && r.type !== undefined)
+  const userModified = r.userModified === true
+  if (hunks.length) return [{ path: r.filePath, hunks, isNew, userModified }]
+  if ((git?.additions ?? 0) + (git?.deletions ?? 0) > 0) return [{ path: r.filePath, hunks: [], isNew, userModified, isTooLarge: true }]
+  return []
 }
 
-// Bash results carry `bashEditDiff.files` when a shell command wrote files. Deleted files are skipped: a deletion has no code to show.
+// Bash results carry `bashEditDiff.files` when a shell command wrote files. A deleted file is a row of its own.
 export function patchesFromBash(result: unknown): Patch[] {
   const diff = (result as { bashEditDiff?: { files?: unknown[] } } | undefined)?.bashEditDiff
   if (!diff || !Array.isArray(diff.files)) return []
   return diff.files.flatMap(f => {
     const file = f as { filePath?: string; hunks?: unknown; created?: true; deleted?: true }
+    if (typeof file.filePath !== 'string') return []
     const hunks = asHunks(file.hunks)
-    if (!hunks.length || typeof file.filePath !== 'string' || file.deleted) return []
+    if (file.deleted) return [{ path: file.filePath, hunks: [], isNew: false, userModified: false, isDeleted: true as const }]
+    if (!hunks.length) return []
     return [{ path: file.filePath, hunks, isNew: file.created === true, userModified: false }]
   })
 }
 
-export const counts = (hunks: Hunk[]) =>
+export const counts = (hunks: readonly Hunk[]) =>
   hunks.reduce(
     (n, h) => {
       for (const l of h.lines) {
@@ -57,16 +64,43 @@ export const counts = (hunks: Hunk[]) =>
     { additions: 0, deletions: 0 },
   )
 
-const stripComment = (s: string) => s.replace(/^\s*(\/\/|#|\*|\/\*|<!--).*$/, '').replace(/\s+/g, '')
+// One span per hunk, trimmed to its first and last `+`/`-` line, in the file as it was after the edit.
+export function spansOf(hunks: readonly Hunk[]): Span[] {
+  return hunks.map(h => {
+    let line = h.newStart
+    let first: number | undefined
+    let last = h.newStart
+    for (const l of h.lines) {
+      if (l.startsWith('-')) {
+        first ??= line
+        last = Math.max(last, line)
+        continue // a removed line occupies no new line
+      }
+      if (l.startsWith('+')) {
+        first ??= line
+        last = line
+      }
+      line += 1
+    }
+    return { from: first ?? h.newStart, to: Math.max(first ?? h.newStart, last) }
+  })
+}
 
-// Cosmetic when every removed line, with whitespace and comments dropped, is matched by an added line and vice versa.
-export function isCosmetic(hunks: Hunk[]): boolean {
+const HASH_COMMENT = /\.(py|rb|sh|yml|yaml|toml|mk)$/
+const strip = (s: string, hash: boolean) =>
+  s
+    .replace(hash ? /#.*$/ : /\/\/.*$|\/\*.*?\*\/|^\s*(\*|\/\*).*$|<!--.*$/, '')
+    .replace(/\s+/g, '')
+
+// Cosmetic when the stripped `-` lines equal the stripped `+` lines (whitespace and comments dropped). No rename detection.
+export function isCosmetic(hunks: readonly Hunk[], path = ''): boolean {
+  const hash = HASH_COMMENT.test(path)
   const minus: string[] = []
   const plus: string[] = []
   for (const h of hunks)
     for (const l of h.lines) {
-      if (l.startsWith('-')) minus.push(stripComment(l.slice(1)))
-      else if (l.startsWith('+')) plus.push(stripComment(l.slice(1)))
+      if (l.startsWith('-')) minus.push(strip(l.slice(1), hash))
+      else if (l.startsWith('+')) plus.push(strip(l.slice(1), hash))
     }
   if (!minus.length && !plus.length) return true
   const left = minus.filter(Boolean).sort()
@@ -74,27 +108,89 @@ export function isCosmetic(hunks: Hunk[]): boolean {
   return left.length === right.length && left.every((l, i) => l === right[i])
 }
 
-// `+` lines that declare something callable or exported from outside the file.
-const CAPABILITY = /^\+\s*(export\s|(async\s+)?function\s|def\s|class\s|(pub\s+)?fn\s|func\s|interface\s|type\s+\w+\s*=|const\s+\w+\s*=\s*(async\s*)?\(|app\.(get|post|put|delete|use)\(|router\.)/
+export const isTestPath = (path: string) =>
+  /(^|\/)(test|tests|__tests__|spec|fixtures?|checks?)\//.test(path) || /\.(test|spec)\.[^/]+$|_test\.(go|py|rs)$|(^|\/)test_[^/]*\.py$|(^|\/)check\.[cm]?[jt]s$/.test(path)
+export const isConfigPath = (path: string) =>
+  /(^|\/)(package\.json|tsconfig[^/]*\.json|.*\.config\.[cm]?[jt]s|.*\.ya?ml|.*\.toml|\.env[^/]*|Dockerfile|Makefile|.*\.lock|.*lock\.json)$/.test(path)
+export const isCodePath = (path: string) => /\.(ts|tsx|js|jsx|mjs|cjs|py|rs|go|rb|java|kt|swift|c|cc|cpp|h|cs|php|sh)$/.test(path) && !isTestPath(path) && !isConfigPath(path)
 
-export const addsCapability = (hunks: Hunk[]) => hunks.some(h => h.lines.some(l => CAPABILITY.test(l)))
+// Top-level declarations a `+` line adds: `adds export <name>`. Not in test paths or markdown.
+const DECLS: { re: RegExp; group: number }[] = [
+  { re: /^\+(export\s+(default\s+)?)?(async\s+)?(function|class|interface)\s+(\w+)/, group: 5 },
+  { re: /^\+(export\s+)?const\s+(\w+)\s*=\s*(async\s*)?\(.*\)\s*=>/, group: 2 },
+  { re: /^\+def\s+(\w+)/, group: 1 },
+  { re: /^\+(pub\s+)?fn\s+(\w+)/, group: 2 },
+  { re: /^\+func\s+(\([^)]*\)\s*)?(\w+)/, group: 2 },
+]
+const ROUTE = /^\+\s*(app|router|r)\.(get|post|put|patch|delete|use)\(\s*['"`]([^'"`]+)['"`]/
+const REGISTER = /^\+\s*\$\.(tool|command)\.register\(/
+const NAME_LITERAL = /\bname:\s*['"`]([\w:-]+)['"`]/
 
-export const isTestPath = (path: string) => /(^|\/)(test|tests|__tests__|spec|fixtures?|checks?)\//.test(path) || /\.(test|spec|check)\.[cm]?[jt]sx?$|_test\.(go|py|rs)$|test_.*\.py$/.test(path)
-export const isConfigPath = (path: string) => /(^|\/)(package\.json|tsconfig[^/]*\.json|.*\.config\.[cm]?[jt]s|.*\.ya?ml|.*\.toml|\.env[^/]*|Dockerfile|Makefile)$/.test(path)
+export function declarations(hunks: readonly Hunk[], path: string): string[] {
+  if (isTestPath(path) || /\.md$/.test(path)) return []
+  const names: string[] = []
+  for (const h of hunks)
+    h.lines.forEach((l, i) => {
+      for (const { re, group } of DECLS) {
+        const m = l.match(re)
+        if (m) {
+          if (m[group]) names.push(m[group])
+          return
+        }
+      }
+      const route = l.match(ROUTE)
+      if (route) {
+        names.push(route[3]!)
+        return
+      }
+      if (REGISTER.test(l)) {
+        const lit = h.lines.slice(i, i + 12).map(x => x.match(NAME_LITERAL)?.[1]).find(Boolean)
+        if (lit) names.push(lit)
+      }
+    })
+  return names
+}
 
-// The line range a change covers in the new file, for overlap marks in the file view.
-export const range = (hunks: Hunk[]) => ({
-  from: Math.min(...hunks.map(h => h.newStart)),
-  to: Math.max(...hunks.map(h => h.newStart + Math.max(h.newLines, 1) - 1)),
-})
+// A `-` and a `+` line that declare the same name with different text.
+const SIG: { re: RegExp; group: number }[] = [
+  { re: /(function|def|fn|func)\s+(\w+)\s*\(/, group: 2 },
+  { re: /^\s*(export\s+)?(const\s+)?(\w+)\s*[=:]?\s*(async\s*)?\([^)]*\)\s*(=>|\{|:)/, group: 3 },
+]
+export function signatureChanges(hunks: readonly Hunk[]): string[] {
+  const nameOf = (l: string) => {
+    for (const { re, group } of SIG) {
+      const m = l.slice(1).match(re)
+      if (m) return m[group]
+    }
+    return undefined
+  }
+  const out = new Set<string>()
+  for (const h of hunks) {
+    const minus = new Map<string, string>()
+    for (const l of h.lines) if (l.startsWith('-')) for (const n of [nameOf(l)]) if (n) minus.set(n, l.slice(1).trim())
+    for (const l of h.lines)
+      if (l.startsWith('+')) {
+        const n = nameOf(l)
+        if (n && minus.has(n) && minus.get(n) !== l.slice(1).trim()) out.add(n)
+      }
+  }
+  return [...out]
+}
 
-export const changeOf = (base: Omit<Change, 'hunks' | 'additions' | 'deletions' | 'isNew' | 'userModified' | 'path' | 'score' | 'signals'>, patch: Patch, root: string | undefined): Change => ({
+export const changeOf = (
+  base: Omit<Change, 'hunks' | 'spans' | 'additions' | 'deletions' | 'isNew' | 'userModified' | 'path' | 'signals' | 'isDeleted' | 'isTooLarge'>,
+  patch: Patch,
+  cwd: string,
+  root: string | undefined,
+): Change => ({
   ...base,
-  path: relPath(patch.path, root),
+  path: normalizePath(patch.path, cwd, root),
   hunks: patch.hunks,
+  spans: spansOf(patch.hunks),
   ...counts(patch.hunks),
   isNew: patch.isNew,
   userModified: patch.userModified,
-  score: 0,
   signals: [],
+  ...(patch.isDeleted ? { isDeleted: true } : {}),
+  ...(patch.isTooLarge ? { isTooLarge: true } : {}),
 })

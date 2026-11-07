@@ -1,88 +1,208 @@
-import type { Agent, AgentRow, Change } from '../types'
-import { addsCapability, isConfigPath, isCosmetic, isTestPath, range } from './capture.ts'
+import type { Agent, AgentRow, Change, Evidence, FileRow, Signal } from '../types'
+import { declarations, isCodePath, isConfigPath, isCosmetic, isTestPath, signatureChanges } from './capture.ts'
+import { REACH_MIN } from './reach.ts'
+import { rebasePath, type Placed, type Rebased } from './spans.ts'
 
-export const REACH_MIN = 3 // importers at which a file counts as far-reaching
+const STOP_STEMS = new Set(['index', 'main', 'app', 'utils', 'types', 'config', 'lib'])
 
-const same = (a: Change, b: Change) => (a.agentId ?? 'main') === (b.agentId ?? 'main')
+export const agentOf = (c: Change) => c.agentId ?? 'main'
 
-const overlaps = (a: Change, b: Change) => {
-  const x = range(a.hunks)
-  const y = range(b.hunks)
-  return x.from <= y.to && y.from <= x.to
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// The name other files call this one by: the stem, or the directory for an `index.*` file.
+export function stemOf(path: string): string {
+  const file = path.split('/').at(-1) ?? ''
+  const stem = file.replace(/\.[^.]+$/, '')
+  if (stem !== 'index') return stem
+  return path.split('/').at(-2) ?? stem
 }
 
-// Ambition = outcome scope relative to effort, never raw size. `earlier` are this session's changes before `c`.
-// The number is never shown without its signals, so each point has a label.
-export function score(c: Change, earlier: readonly Change[]): { score: number; signals: string[] } {
-  const signals: string[] = []
-  let n = 0
-  const mine = earlier.filter(e => same(e, c))
-  const cosmetic = isCosmetic(c.hunks)
-
-  if (addsCapability(c.hunks)) {
-    n += 2
-    signals.push('new capability')
-  }
-  const dir = c.path.includes('/') ? c.path.slice(0, c.path.lastIndexOf('/')) : ''
-  const stem = c.path.split('/').at(-1)?.replace(/\.[^.]+$/, '') ?? ''
-  // A test, config or caller counts only when it names this file: any test somewhere in the session is not completeness.
-  const names = (e: Change) => stem.length >= 3 && (e.path.includes(stem) || e.hunks.some(h => h.lines.some(l => l.includes(stem))))
-  const complete = mine.some(e => e.path !== c.path && (isConfigPath(e.path) || ((isTestPath(e.path) || e.path.startsWith(`${dir}/`)) && names(e))))
-  if (complete) {
-    n += 2
-    signals.push('tests or callers touched')
-  } else if (!isTestPath(c.path) && !isConfigPath(c.path)) signals.push('no tests')
-
-  if (c.importers === undefined) signals.push('reach unknown')
-  else if (c.importers >= REACH_MIN) {
-    n += 2
-    signals.push(`reach ${c.importers} files`)
-  }
-
-  if (!cosmetic) n += 1
-  else signals.push('cosmetic')
-
-  if (c.why) n += 1
-  else signals.push('no why')
-
-  const churn = mine.filter(e => e.path === c.path && overlaps(e, c)).length
-  if (churn) {
-    n -= churn
-    signals.push(`churn ×${churn}`)
-  }
-  if (c.userModified) {
-    n -= 1
-    signals.push('user modified')
-  }
-  // 8 points available before penalties; scale to 10.
-  return { score: Math.max(0, Math.min(10, Math.round((n * 10) / 8))), signals }
+// Does change `e` name the file of change `c`? Path match: the stem as a whole segment or `stem.(test|spec)`;
+// hunk-text match: `\bstem\b` on an import/require/from/use line or a call `stem(`. Short or common stems match by path only.
+export function namesFile(e: Change, c: Change): boolean {
+  const stem = stemOf(c.path)
+  if (!stem) return false
+  const segs = e.path.split('/')
+  const file = segs.at(-1) ?? ''
+  if (segs.slice(0, -1).includes(stem) || new RegExp(`^${escapeRe(stem)}\\.(test|spec)\\.`).test(file)) return true
+  if (stem.length < 3 || STOP_STEMS.has(stem)) return false
+  const word = new RegExp(`\\b${escapeRe(stem)}\\b`)
+  const call = new RegExp(`\\b${escapeRe(stem)}\\(`)
+  return e.hunks.some(h => h.lines.some(l => (/\b(import|require|from|use)\b/.test(l) && word.test(l)) || call.test(l)))
 }
 
-const mean = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null)
+const stripWs = (s: string) => s.replace(/\s+/g, '')
+const sets = (c: Change) => {
+  const minus = new Set<string>()
+  const plus = new Set<string>()
+  for (const h of c.hunks)
+    for (const l of h.lines) {
+      const s = stripWs(l.slice(1))
+      if (!s) continue
+      if (l.startsWith('-')) minus.add(s)
+      else if (l.startsWith('+')) plus.add(s)
+    }
+  return { minus, plus }
+}
+const sameSet = (a: Set<string>, b: Set<string>) => a.size === b.size && [...a].every(x => b.has(x))
 
-export const sessionScore = (changes: readonly Change[]) => mean(changes.map(c => c.score))
+// A later change on the same path that puts back what `c` changed: its `+` set is c's `-` set and vice versa.
+export function revertedBy(c: Change, later: readonly Change[]): boolean {
+  const mine = sets(c)
+  if (!mine.minus.size || !mine.plus.size) return false
+  return later.some(l => {
+    if (l.path !== c.path) return false
+    const theirs = sets(l)
+    return sameSet(theirs.plus, mine.minus) && sameSet(theirs.minus, mine.plus)
+  })
+}
 
-// One row per agent that made a change or is still running, the main loop first, then by first change.
+// Every path's hunks rebased to current lines: churn per change, overlaps between agents.
+export function rebaseAll(all: readonly Change[]): Map<string, Rebased> {
+  const byPath = new Map<string, Placed[]>()
+  all.forEach((c, i) =>
+    c.hunks.forEach((h, k) => {
+      const span = c.spans[k] ?? { from: h.newStart, to: h.newStart }
+      byPath.set(c.path, [...(byPath.get(c.path) ?? []), { changeId: c.id, agent: agentOf(c), order: i * 1000 + k, newStart: h.newStart, oldLines: h.oldLines, newLines: h.newLines, span }])
+    }),
+  )
+  return new Map([...byPath].map(([path, hunks]) => [path, rebasePath(hunks)]))
+}
+
+// Points and signals for one change, given the whole session (the same agent's other changes count for completeness,
+// later changes for churn and reverts). Penalties first, then points, then flags.
+export function scoreOne(c: Change, all: readonly Change[], rebased: Map<string, Rebased>): Change {
+  if (c.isDeleted || c.isTooLarge) {
+    const { points: _points, ...rest } = c
+    return { ...rest, signals: [] }
+  }
+  const i = all.findIndex(x => x.id === c.id)
+  const later = i >= 0 ? all.slice(i + 1) : []
+  const signals: Signal[] = []
+  const flags: Signal[] = []
+  const churn = rebased.get(c.path)?.churn.get(c.id) ?? 0
+  if (churn) signals.push({ label: `churn ×${churn}`, pts: -churn })
+  const isReverted = c.isReverted === true || revertedBy(c, later)
+  if (isReverted) signals.push({ label: 'reverted', pts: -2 })
+
+  const [decl] = declarations(c.hunks, c.path)
+  if (decl) signals.push({ label: `adds export ${decl}`, pts: 2 })
+
+  const mine = all.filter(e => e.id !== c.id && agentOf(e) === agentOf(c) && e.path !== c.path && !e.isDeleted)
+  const named = mine.filter(e => namesFile(e, c))
+  const test = named.find(e => isTestPath(e.path))
+  const config = named.find(e => isConfigPath(e.path))
+  const caller = named.find(e => !isTestPath(e.path) && !isConfigPath(e.path))
+  if (test) signals.push({ label: `test touched ${test.path}`, pts: 2 })
+  else if (caller) signals.push({ label: `caller touched ${caller.path}`, pts: 2 })
+  else if (config) signals.push({ label: `config touched ${config.path}`, pts: 1 })
+
+  const cosmetic = isCosmetic(c.hunks, c.path)
+  if (c.importerPaths === undefined) flags.push({ label: 'reach unknown', pts: 0 })
+  else {
+    const n = c.importerPaths.length
+    const pts = n >= REACH_MIN && !cosmetic ? 2 : 0
+    ;(pts ? signals : flags).push({ label: `imported by ${n}`, pts })
+  }
+
+  if (cosmetic) flags.push({ label: 'cosmetic', pts: 0 })
+  else signals.push({ label: 'behaviour', pts: 1 })
+  if (c.whySource === 'captured') signals.push({ label: 'why', pts: 1 })
+
+  if (c.test) {
+    const mark = c.test.ok === null ? '?' : c.test.ok ? '✓' : '✗'
+    ;(c.test.ok ? signals : flags).push({ label: `${mark} tested ${c.test.runner}`, pts: c.test.ok ? 2 : 0 })
+  }
+  if (c.check) (c.check.ok ? signals : flags).push({ label: `${c.check.ok ? '✓' : '✗'} checked ${c.check.runner}`, pts: c.check.ok ? 1 : 0 })
+
+  for (const name of signatureChanges(c.hunks)) flags.push({ label: `⚠ signature changed ${name}`, pts: 0 })
+  if (c.userModified) flags.push({ label: 'edited by you', pts: 0 })
+  if (isCodePath(c.path) && !test && !c.test) flags.push({ label: 'no tests', pts: 0 })
+
+  const out = [...signals, ...flags]
+  return { ...c, ...(isReverted ? { isReverted: true } : {}), points: out.reduce((n, s) => n + s.pts, 0), signals: out }
+}
+
+// Every change rescored over the whole session; run on each append and after each test run.
+export function rescore(all: readonly Change[]): Change[] {
+  const rebased = rebaseAll(all)
+  return all.map(c => scoreOne(c, all, rebased))
+}
+
+export type RunEvent = { kind: 'test' | 'check'; runner: string; ok: boolean | null; at: number }
+
+// A test or check run by `by` lands on the code changes it covers: `by`'s own changes, plus (from main) the changes of
+// ended subagents, each made after its owner's last passing run of that kind. `lastOk` is that boundary and is
+// advanced here when the run passed. Reverted, deleted, test and config rows take none.
+export function attachRun(all: readonly Change[], agents: readonly Agent[], run: RunEvent, by: string, lastOk: Map<string, number>): Change[] {
+  const ended = new Set(agents.filter(a => a.endedAt).map(a => a.agentId))
+  const key = (owner: string) => `${owner}:${run.kind}`
+  const touched = new Set<string>()
+  const out = all.map(c => {
+    const owner = agentOf(c)
+    if (!isCodePath(c.path) || c.isReverted || c.isDeleted || c.isTooLarge) return c
+    if (owner !== by && !(by === 'main' && ended.has(owner))) return c
+    if (c.at <= (lastOk.get(key(owner)) ?? 0) || c.at > run.at) return c
+    touched.add(owner)
+    return run.kind === 'test'
+      ? { ...c, test: { runner: run.runner, ok: run.ok, at: run.at } }
+      : { ...c, check: { runner: run.runner, ok: run.ok === true, at: run.at } }
+  })
+  if (run.ok === true) for (const owner of touched) lastOk.set(key(owner), run.at)
+  return out
+}
+
+export function evidenceOf(mine: readonly Change[], all: readonly Change[]): Evidence {
+  const others = (path: string, agent: string) => all.some(c => c.path === path && agentOf(c) !== agent)
+  return {
+    changes: mine.length,
+    testsAfter: mine.filter(c => c.test && c.test.ok !== null).length,
+    noWhy: mine.filter(c => c.whySource !== 'captured').length,
+    reverted: mine.filter(c => c.isReverted).length,
+    sharedFiles: new Set(mine.filter(c => others(c.path, agentOf(c))).map(c => c.path)).size,
+  }
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+// One row per agent that changed something, worked, or still runs. Running first, then by start time; main stays.
 export function agentRows(changes: readonly Change[], agents: readonly Agent[], now: number): AgentRow[] {
-  const ids = ['main', ...agents.map(a => a.agentId)]
   const rows: AgentRow[] = []
-  for (const id of ids) {
-    const mine = changes.filter(c => (c.agentId ?? 'main') === id)
-    const a = agents.find(x => x.agentId === id)
-    if (!mine.length && !(a && !a.endedAt)) continue
-    const label = id === 'main' ? 'main' : a?.type ?? id.slice(0, 8)
+  for (const a of agents) {
+    const mine = changes.filter(c => agentOf(c) === a.agentId)
+    const running = !a.endedAt
+    if (a.agentId !== 'main' && !mine.length && !running && !a.reads && !a.edits && !a.asks) continue
     rows.push({
-      id,
-      label: a?.description && id !== 'main' ? `${label} · ${a.description}` : label,
-      model: a?.model ?? '',
-      isRunning: !!a && !a.endedAt,
-      files: new Set(mine.map(c => c.path)).size,
-      additions: mine.reduce((n, c) => n + c.additions, 0),
-      deletions: mine.reduce((n, c) => n + c.deletions, 0),
-      score: mean(mine.map(c => c.score)),
-      leverage: a ? `${a.edits} edit${a.edits === 1 ? '' : 's'} / ${a.reads} read${a.reads === 1 ? '' : 's'}${a.asks ? ` · ${a.asks} asked` : ''}` : '',
+      id: a.agentId,
+      tag: a.tag,
+      model: a.model,
+      description: a.agentId === 'main' ? '' : a.description,
+      state: running ? 'running' : a.agentId === 'main' ? 'idle' : 'done',
+      ...(running ? { elapsedMs: Math.max(0, now - a.startedAt) } : {}),
+      ...(a.lastAt !== undefined ? { last: { at: a.lastAt, tool: a.lastTool ?? '', target: a.lastTarget ?? '' } } : {}),
+      evidence: evidenceOf(mine, changes),
+      activity: [plural(a.edits, 'edit'), plural(a.reads, 'read'), a.asks ? `${a.asks} asked` : ''].filter(Boolean).join(' · '),
     })
   }
-  void now
-  return rows.sort((x, y) => Number(y.isRunning) - Number(x.isRunning))
+  return rows.sort((x, y) => Number(y.state === 'running') - Number(x.state === 'running') || (agents.find(a => a.agentId === x.id)?.startedAt ?? 0) - (agents.find(a => a.agentId === y.id)?.startedAt ?? 0))
+}
+
+// The file view: every path with each agent's rebased spans, overlaps marked. `visible` keeps only paths that set touched.
+export function fileRows(all: readonly Change[], agents: readonly Agent[], visiblePaths?: Set<string>): FileRow[] {
+  const rebased = rebaseAll(all.filter(c => !c.isDeleted && !c.isTooLarge))
+  const rows: FileRow[] = []
+  for (const [path, r] of rebased) {
+    if (visiblePaths && !visiblePaths.has(path)) continue
+    const here = all.filter(c => c.path === path && !c.isDeleted && !c.isTooLarge)
+    const byAgent = new Map<string, Change[]>()
+    for (const c of here) byAgent.set(agentOf(c), [...(byAgent.get(agentOf(c)) ?? []), c])
+    const overlapIds = new Set(r.overlaps.flatMap(o => [o.a, o.b]))
+    const rowAgents = [...byAgent].map(([id, cs]) => {
+      const a = agents.find(x => x.agentId === id)
+      const spans = cs.flatMap(c => (r.spans.get(c.id) ?? []).map(s => ({ ...s, overlap: overlapIds.has(c.id) && r.overlaps.some(o => (o.a === c.id || o.b === c.id) && o.span.from <= s.to && s.from <= o.span.to) })))
+      return { id, tag: a?.tag ?? id, state: (a && !a.endedAt ? 'running' : id === 'main' ? 'idle' : 'done') as AgentRow['state'], spans, lastAt: Math.max(...cs.map(c => c.at)) }
+    })
+    rows.push({ path, agents: rowAgents, ...(r.overlaps[0] ? { overlap: r.overlaps[0].span } : {}), lastAt: Math.max(...here.map(c => c.at)) })
+  }
+  return rows.sort((x, y) => Number(!!y.overlap) - Number(!!x.overlap) || y.agents.length - x.agents.length || y.lastAt - x.lastAt)
 }

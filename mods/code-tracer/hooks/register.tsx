@@ -1,11 +1,15 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Engine, Register } from 'claude-code'
 
-import type { Agent, Change, FileRow, View } from '../types'
-import { changeOf, patchesFromBash, patchesFromEdit, range } from './capture.ts'
+import type { Agent, Change, StoreRow, View } from '../types'
+import { changeOf, normalizePath, patchesFromBash, patchesFromEdit } from './capture.ts'
+import { ellipsize } from './ellipsis.ts'
 import { toMarkdown } from './export.ts'
 import { drawPane } from './pane'
-import { agentRows, score, sessionScore } from './score.ts'
+import { importersOf, reachQuery } from './reach.ts'
+import { bashTarget, detectRun, isReadCommand, revertedPaths } from './runs.ts'
+import { agentOf, agentRows, attachRun, evidenceOf, fileRows, rescore } from './score.ts'
+import { tagsFor } from './tags.ts'
 import { whyOf } from './why.ts'
 
 const view = atom({ plugin: 'code-tracer', key: 'view' } as const, null)
@@ -14,29 +18,42 @@ const agents = atom({ plugin: 'code-tracer', key: 'agents' } as const, [] as Age
 
 const PANE = 'code-tracer'
 const PAGE_SIZE = 20
-const EDIT_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit|Bash)$/ // a RegExp: Grep, Glob and MultiEdit are not registered on every build
+const FILE_PAGE_SIZE = 30
+const SHOWN_DONE = 3
+// RegExps: Grep, Glob and MultiEdit are not registered on every build, and a string filter on a missing tool fails.
+const EDIT_TOOLS = /^(Edit|Write|MultiEdit|NotebookEdit)$/
 const READ_TOOLS = /^(Read|Grep|Glob|WebFetch|WebSearch)$/
-const STORE_MAX = 3_900_000 // $.fs.write caps at 4 MiB; past this the session's file stops growing
+const STORE_MAX = 3_900_000 // $.fs.write caps at 4 MiB; past this the session's part stops growing
 
 // Shared by the hooks and the top-level helpers: the loader lets $ reach only functions declared at the top of this file.
 const st = {
   session: '',
   home: '',
+  cwd: '/',
   tz: 0,
   root: undefined as string | undefined, // the repo's top level; undefined outside git
   repo: 'code-tracer',
   branch: undefined as string | undefined,
   seq: 0,
+  part: 0, // store part: `<session>.jsonl`, then `<session>-1.jsonl` after a /clear
   page: 0,
+  filePage: 0,
   mode: 'feed' as View['mode'],
   filter: undefined as string | undefined,
+  pathFilter: undefined as string | undefined,
+  focusPath: undefined as string | undefined,
   expanded: [] as string[],
-  reach: new Map<string, number | undefined>(), // path → importer count, once per path per session
+  showAll: false,
+  tagWidth: undefined as 12 | 18 | undefined, // fixed at the first render
+  reach: new Map<string, string[] | undefined>(), // path → importer paths, once per path per session
+  lastOk: new Map<string, number>(), // `<agent>:<test|check>` → time of the last passing run
   hasAutoOpened: false,
   hasWarnedWrite: false,
   storeFull: false,
   drawSeq: 0,
 }
+
+const tagWidth = () => st.tagWidth ?? 12
 
 async function run($: Engine, argv: string[], cwd?: string): Promise<string | undefined> {
   try {
@@ -48,26 +65,34 @@ async function run($: Engine, argv: string[], cwd?: string): Promise<string | un
 }
 
 const folderName = (root: string) => root.replace(/^\//, '').replace(/[\/\s]+/g, '-')
-const storePath = () => `${st.home}/.claude/code-tracer/${folderName(st.root ?? st.repo)}/${st.session}.jsonl`
+const storeDir = () => `${st.home}/.claude/code-tracer/${folderName(st.root ?? st.repo)}`
+const partName = (n: number) => (n ? `${st.session}-${n}.jsonl` : `${st.session}.jsonl`)
+const storePath = () => `${storeDir()}/${partName(st.part)}`
 
-// Files in the repo that mention the changed file's stem, the file itself excluded. Undefined outside git or on failure.
-async function importers($: Engine, path: string): Promise<number | undefined> {
+// Files in the repo that import the changed file, by the extension's pattern. Undefined outside git, on failure, or
+// for an extension without a pattern (`reach unknown`).
+async function importers($: Engine, path: string): Promise<string[] | undefined> {
   if (st.reach.has(path)) return st.reach.get(path)
-  let n: number | undefined
-  if (st.root) {
-    const stem = path.split('/').at(-1)?.replace(/\.[^.]+$/, '') ?? ''
-    const out = stem.length >= 3 ? await run($, ['git', '-C', st.root, 'grep', '-l', '-F', '--', stem, '.', `:!${path}`]) : undefined
-    n = out === undefined ? undefined : out ? out.split('\n').length : 0
+  let out: string[] | undefined
+  const q = reachQuery(path)
+  if (st.root && q) {
+    const grep = await run($, ['git', '-C', st.root, 'grep', '-l', '-I', '-E', '-e', q.regex, '--', '.', `:!${path}`])
+    if (grep !== undefined) {
+      let found = grep ? grep.split('\n') : []
+      if (q.kind === 'go') found = [...found, ...(((await run($, ['git', '-C', st.root, 'ls-files', '--', `${q.dir}/*.go`])) ?? '').split('\n').filter(Boolean))]
+      out = importersOf(found, path)
+    }
   }
-  st.reach.set(path, n)
-  return n
+  st.reach.set(path, out)
+  return out
 }
 
 // One write at a time: parallel subagents must not let an older whole-file write land last.
 let chain: Promise<unknown> = Promise.resolve()
-async function persist($: Engine, all: readonly Change[]) {
+async function persist($: Engine) {
   if (!st.home || st.storeFull) return
-  const text = all.map(c => JSON.stringify(c)).join('\n')
+  const rows: StoreRow[] = [...(await read($, agents)).map(a => ({ kind: 'agent' as const, ...a })), ...(await read($, changes)).map(c => ({ kind: 'change' as const, ...c }))]
+  const text = rows.map(r => JSON.stringify(r)).join('\n')
   if (text.length > STORE_MAX) {
     st.storeFull = true
     $.ui.toast('code-tracer: session log is full; the pane keeps working, the file stops growing', { timeoutMs: 8_000 })
@@ -81,65 +106,104 @@ async function persist($: Engine, all: readonly Change[]) {
   await chain
 }
 
-async function load($: Engine): Promise<Change[]> {
-  try {
-    const text = await $.fs.read(storePath())
-    if (typeof text !== 'string') return []
-    return text
-      .split('\n')
-      .filter(Boolean)
-      .flatMap(line => {
-        try {
-          const c = JSON.parse(line) as Change
-          return c.v === 1 && c.id && Array.isArray(c.hunks) ? [c] : []
-        } catch {
-          return []
-        }
-      })
-  } catch {
-    return []
+const parseRows = (text: string): StoreRow[] =>
+  text
+    .split('\n')
+    .filter(Boolean)
+    .flatMap(line => {
+      try {
+        const r = JSON.parse(line) as StoreRow
+        return (r.kind === 'change' && r.v === 1 && r.id && Array.isArray(r.hunks)) || (r.kind === 'agent' && r.agentId) ? [r] : []
+      } catch {
+        return []
+      }
+    })
+
+// Changes come from the newest part (the current conversation); agents and their `#N` counters from every part.
+async function load($: Engine): Promise<{ changes: Change[]; agents: Agent[] }> {
+  const listed = await $.fs.list(storeDir()).catch(() => [])
+  const parts = listed
+    .filter(f => f.kind === 'file')
+    .map(f => (f.name === partName(0) ? 0 : (f.name.match(/^(.+)-(\d+)\.jsonl$/) ?? [])[1] === st.session ? Number(f.name.match(/-(\d+)\.jsonl$/)?.[1]) : -1))
+    .filter(n => n >= 0)
+    .sort((a, b) => a - b)
+  if (!parts.length) return { changes: [], agents: [] }
+  st.part = parts.at(-1) ?? 0
+  const byId = new Map<string, Agent>()
+  let latest: Change[] = []
+  for (const n of parts) {
+    const rows = parseRows((await $.fs.read(`${storeDir()}/${partName(n)}`).catch(() => '')) as string)
+    for (const r of rows) {
+      if (r.kind === 'agent') {
+        const { kind: _kind, ...a } = r
+        byId.set(a.agentId, a)
+      }
+    }
+    if (n === st.part) latest = rows.flatMap(r => (r.kind === 'change' ? [(({ kind: _kind, ...c }) => c)(r)] : []))
   }
+  return { changes: latest, agents: [...byId.values()] }
 }
 
-const fileRows = (all: readonly Change[], labelOf: (c: Change) => string): FileRow[] => {
-  const byPath = new Map<string, Change[]>()
-  for (const c of all) byPath.set(c.path, [...(byPath.get(c.path) ?? []), c])
-  return [...byPath]
-    .map(([path, cs]) => {
-      const ranges = cs.map(c => ({ agent: labelOf(c), ...range(c.hunks) }))
-      const byAgent = new Map<string, { from: number; to: number }[]>()
-      for (const r of ranges) byAgent.set(r.agent, [...(byAgent.get(r.agent) ?? []), r])
-      const agentsHere = [...byAgent.keys()]
-      const hasOverlap = ranges.some((a, i) => ranges.some((b, j) => i < j && a.agent !== b.agent && a.from <= b.to && b.from <= a.to))
-      return { path, agents: agentsHere, ranges, hasOverlap }
-    })
-    .sort((a, b) => Number(b.hasOverlap) - Number(a.hasOverlap) || b.agents.length - a.agents.length)
+// Every agent's tag recomputed over the spawn order at the session's tag width, so `#N` counters stay stable.
+async function retag($: Engine) {
+  await update($, agents, prev => {
+    const tags = tagsFor(
+      prev.map(a => a.type),
+      tagWidth(),
+    )
+    return prev.some((a, i) => a.tag !== tags[i]) ? prev.map((a, i) => ({ ...a, tag: tags[i] ?? a.tag })) : prev
+  })
+}
+
+const touchAgent = async ($: Engine, id: string, patch: (a: Agent) => Agent) => update($, agents, prev => prev.map(a => (a.agentId === id ? patch(a) : a)))
+
+async function ensureMain($: Engine) {
+  const now = await $.clock.now()
+  await update($, agents, prev =>
+    prev.some(a => a.agentId === 'main') ? prev : [{ agentId: 'main', type: 'main', tag: 'main', description: '', model: '', startedAt: now, endedAt: now, reads: 0, edits: 0, asks: 0 }, ...prev],
+  )
 }
 
 const redraw = async ($: Engine) => {
   const mine = ++st.drawSeq
   const all = await read($, changes)
-  const rows = agentRows(all, await read($, agents), await $.clock.now())
-  // The full label (type · description): two agents of one type must stay two agents in the file view.
-  const label = (c: Change) => rows.find(r => r.id === (c.agentId ?? 'main'))?.label ?? 'main'
-  const visible = st.filter ? all.filter(c => (c.agentId ?? 'main') === st.filter) : all
+  const known = await read($, agents)
+  const now = await $.clock.now()
+  const rows = agentRows(all, known, now)
+  const done = rows.filter(r => r.state === 'done')
+  const hiddenDone = st.showAll ? 0 : Math.max(0, done.length - SHOWN_DONE)
+  const shownRows = hiddenDone ? rows.filter(r => r.state !== 'done' || done.indexOf(r) < SHOWN_DONE) : rows
+  const allFiles = fileRows(all, known)
+  const visible = all.filter(c => (!st.filter || agentOf(c) === st.filter) && (!st.pathFilter || c.path === st.pathFilter))
   const newestFirst = [...visible].reverse()
   const pages = Math.max(1, Math.ceil(newestFirst.length / PAGE_SIZE))
   st.page = Math.min(st.page, pages - 1)
+  const touched = st.filter ? new Set(all.filter(c => agentOf(c) === st.filter).map(c => c.path)) : undefined
+  const files = fileRows(all, known, touched).sort((x, y) => Number(y.path === st.focusPath) - Number(x.path === st.focusPath))
+  const filePages = Math.max(1, Math.ceil(files.length / FILE_PAGE_SIZE))
+  st.filePage = Math.min(st.filePage, filePages - 1)
   const next: View = {
     repo: st.repo,
     ...(st.branch ? { branch: st.branch } : {}),
     changes: all.length,
     files: new Set(all.map(c => c.path)).size,
-    agents: rows,
-    sessionScore: sessionScore(all),
+    running: rows.filter(r => r.state === 'running').length,
+    agents: shownRows,
+    hiddenDone,
+    evidence: evidenceOf(all, all),
+    conflicts: { files: allFiles.filter(f => f.agents.length > 1).length, overlapping: allFiles.filter(f => f.overlap).length },
     mode: st.mode,
     ...(st.filter ? { filter: st.filter } : {}),
+    ...(st.pathFilter ? { pathFilter: st.pathFilter } : {}),
+    ...(st.focusPath ? { focusPath: st.focusPath } : {}),
+    tagWidth: tagWidth(),
     feed: newestFirst.slice(st.page * PAGE_SIZE, (st.page + 1) * PAGE_SIZE),
-    fileRows: fileRows(visible, label),
+    fileRows: files.slice(st.filePage * FILE_PAGE_SIZE, (st.filePage + 1) * FILE_PAGE_SIZE),
     expanded: st.expanded,
     page: st.page,
     pages,
+    filePage: st.filePage,
+    filePages,
   }
   if (mine !== st.drawSeq) return
   await update($, view, prev => (mine === st.drawSeq ? next : prev))
@@ -153,12 +217,7 @@ const autoOpen = async ($: Engine) => {
   if (!(await $.ui.panes()).some(p => p.id === PANE)) void $.ui.open({ id: PANE, title: 'Code tracer' }).catch(() => {})
 }
 
-const bump = async ($: Engine, agentId: string | undefined, field: 'reads' | 'edits' | 'asks') => {
-  if (!agentId) return
-  await update($, agents, prev => prev.map(a => (a.agentId === agentId ? { ...a, [field]: a[field] + 1 } : a)))
-}
-
-// Record every file a finished edit or shell write touched: who, where, the hunks, the why, the score.
+// Record every file a finished edit or shell write touched: who, where, the hunks, the why; then rescore the session.
 async function track($: Engine, tool: Change['tool'], toolUseId: string, agentId: string | undefined, result: unknown) {
   const patches = tool === 'Bash' ? patchesFromBash(result) : patchesFromEdit(result)
   if (!patches.length) return
@@ -172,20 +231,63 @@ async function track($: Engine, tool: Change['tool'], toolUseId: string, agentId
   }
   const at = await $.clock.now()
   for (const patch of patches) {
-    const base = changeOf(
-      { v: 1, id: `${st.session.slice(0, 8)}-${++st.seq}`, at, session: st.session, ...(agentId ? { agentId } : {}), tool, ...why },
-      patch,
-      st.root,
-    )
-    const c: Change = { ...base, importers: await importers($, base.path) }
-    const all = await read($, changes)
-    const scored: Change = { ...c, ...score(c, all) }
-    const next = [...all, scored]
-    await update($, changes, () => next)
-    await persist($, next)
+    const base = changeOf({ v: 1, id: `${st.session.slice(0, 8)}-${++st.seq}`, at, session: st.session, ...(agentId ? { agentId } : {}), tool, ...why }, patch, st.cwd, st.root)
+    const c: Change = patch.isDeleted || patch.isTooLarge ? base : { ...base, importerPaths: await importers($, base.path) }
+    await update($, changes, prev => rescore([...prev, c]))
   }
-  await bump($, agentId, 'edits')
+  await persist($)
+  await touchAgent($, agentId ?? 'main', a => ({ ...a, edits: a.edits + 1 }))
   if (!agentId) await autoOpen($)
+  await redraw($)
+}
+
+const lastTargetOf = (tool: string, e: Record<string, unknown>) => {
+  const path = typeof e.file_path === 'string' ? e.file_path : typeof e.notebook_path === 'string' ? e.notebook_path : undefined
+  if (path) return ellipsize(normalizePath(path, st.cwd, st.root), 24)
+  if (tool === 'Bash') return bashTarget(String(e.command ?? ''))
+  if (typeof e.pattern === 'string') return e.pattern.slice(0, 24)
+  if (typeof e.subagent_type === 'string') return e.subagent_type.slice(0, 24)
+  if (typeof e.skill === 'string') return e.skill.slice(0, 24)
+  return ''
+}
+
+// Bookkeeping after any tool call: last action, reads, runs, reverts, captures. Never awaited by the model.
+async function afterCall($: Engine, e: Record<string, unknown>, r: { isError?: boolean; result?: unknown }) {
+  const tool = String(e.tool)
+  const agentId = typeof e.agentId === 'string' ? e.agentId : undefined
+  const id = agentId ?? 'main'
+  const now = await $.clock.now()
+  const command = tool === 'Bash' ? String(e.command ?? '') : ''
+  const isRead = READ_TOOLS.test(tool) || (tool === 'Bash' && isReadCommand(command))
+  await touchAgent($, id, a => ({
+    ...a,
+    lastAt: now,
+    lastTool: tool,
+    lastTarget: lastTargetOf(tool, e),
+    reads: a.reads + (isRead && !r.isError ? 1 : 0),
+    ...(agentId && a.endedAt ? { endedAt: undefined } : {}), // activity after `turn.complete`: continued via SendMessage
+  }))
+  let dirty = false
+  if (tool === 'Bash' && r.result && typeof r.result === 'object') {
+    const res = r.result as { stdout?: string; stderr?: string; interrupted?: boolean }
+    if (!res.interrupted) {
+      const detected = detectRun(command, { isError: r.isError === true, output: `${res.stdout ?? ''}\n${res.stderr ?? ''}` })
+      if (detected) {
+        const known = await read($, agents)
+        await update($, changes, prev => rescore(attachRun(prev, known, { ...detected, at: now }, id, st.lastOk)))
+        dirty = true
+      }
+      const reverted = new Set(revertedPaths(command).map(p => normalizePath(p, st.cwd, st.root)))
+      if (reverted.size) {
+        await update($, changes, prev => rescore(prev.map(c => (reverted.has(c.path) && !c.isReverted ? { ...c, isReverted: true } : c))))
+        dirty = true
+      }
+    }
+    if (!r.isError) await track($, 'Bash', String(e.tool_use_id ?? ''), agentId, r.result)
+  } else if (EDIT_TOOLS.test(tool) && !r.isError && r.result !== undefined) {
+    await track($, tool as Change['tool'], String(e.tool_use_id ?? ''), agentId, r.result)
+  }
+  if (dirty) await persist($)
   await redraw($)
 }
 
@@ -197,30 +299,52 @@ export const register: Register = on => {
     st.home = (await $.env.get('HOME')) ?? ''
     await $.command.register({ name: 'code-tracer', description: 'Show or hide the code tracer pane; `/code-tracer export` writes a markdown report' })
     ready = (async () => {
-      const cwd = await $.session.cwd()
-      const top = await run($, ['git', '-C', cwd, 'rev-parse', '--show-toplevel'])
+      st.cwd = await $.session.cwd()
+      const top = await run($, ['git', '-C', st.cwd, 'rev-parse', '--show-toplevel'])
       st.root = top?.startsWith('/') ? top : undefined
-      st.repo = (st.root ?? cwd).split('/').filter(Boolean).at(-1) ?? 'code-tracer'
+      st.repo = (st.root ?? st.cwd).split('/').filter(Boolean).at(-1) ?? 'code-tracer'
       st.branch = st.root ? await run($, ['git', '-C', st.root, 'symbolic-ref', '--short', '-q', 'HEAD']) : undefined
       const z = (await run($, ['date', '+%z'])) ?? '+0000'
       st.tz = (z.startsWith('-') ? -1 : 1) * (Number(z.slice(1, 3)) * 60 + Number(z.slice(3, 5)))
       const stored = await load($)
-      if (stored.length) {
-        st.seq = Math.max(st.seq, ...stored.map(c => Number(c.id.split('-').at(-1)) || 0))
-        await update($, changes, prev => (prev.length ? prev : stored))
+      if (stored.changes.length) {
+        st.seq = Math.max(st.seq, ...stored.changes.map(c => Number(c.id.split('-').at(-1)) || 0))
+        for (const c of stored.changes)
+          for (const kind of ['test', 'check'] as const) {
+            const r = c[kind]
+            if (r?.ok) st.lastOk.set(`${agentOf(c)}:${kind}`, Math.max(st.lastOk.get(`${agentOf(c)}:${kind}`) ?? 0, r.at))
+          }
+        await update($, changes, prev => (prev.length ? prev : stored.changes))
       }
+      if (stored.agents.length) {
+        const at = await $.clock.now()
+        // Nothing runs across a restart: every stored agent is done, main idle; tags are re-cut to this session's width.
+        await update($, agents, prev => (prev.length ? prev : stored.agents.map(a => ({ ...a, endedAt: a.endedAt ?? at }))))
+      }
+      await ensureMain($)
+      await retag($)
       await redraw($)
     })().catch(() => {})
     return next(e)
   })
 
   on('session.end', async ($, e, next) => {
+    await ready
+    const at = await $.clock.now()
+    await touchAgent($, 'main', a => ({ ...a, endedAt: at }))
     if (e.reason === 'clear') {
-      await update($, changes, () => [])
-      await update($, agents, () => [])
+      // The conversation ends; its rows stay in the current part. The next change opens the next part.
+      st.part += 1
+      st.seq = 0
       st.expanded = []
       st.filter = undefined
+      st.pathFilter = undefined
+      st.focusPath = undefined
       st.page = 0
+      st.filePage = 0
+      st.hasAutoOpened = false
+      await update($, changes, () => [])
+      await update($, agents, prev => prev.map(a => (a.endedAt ? a : { ...a, endedAt: at })))
     }
     return next(e)
   })
@@ -232,6 +356,7 @@ export const register: Register = on => {
     const a: Agent = {
       agentId: r.agentId,
       type: e.subagentType,
+      tag: '',
       description: e.description,
       model: r.model,
       ...(e.parentAgentId ? { parentAgentId: e.parentAgentId } : {}),
@@ -241,36 +366,53 @@ export const register: Register = on => {
       asks: 0,
     }
     await update($, agents, prev => [...prev.filter(x => x.agentId !== a.agentId), a])
+    await retag($)
+    await persist($)
     await redraw($)
     return r
   }).catch(($, e, next) => next(e))
 
-  on('turn.complete', async ($, e, next) => {
-    if (e.agentId) {
-      const at = await $.clock.now()
-      await update($, agents, prev => prev.map(a => (a.agentId === e.agentId ? { ...a, endedAt: at } : a)))
-      await redraw($)
-    }
-    return next(e)
-  })
-
-  on('tool.check', async ($, e, next) => {
-    const v = await next(e)
-    if (v.decision === 'ask' && e.agentId) void bump($, e.agentId, 'asks').catch(() => {})
-    return v
-  }).catch(($, e, next) => next(e))
-
-  on('tool.call', { tool: READ_TOOLS }, async ($, e, next) => {
+  on('turn.start', async ($, e, next) => {
     const r = await next(e)
-    if (e.agentId && !r.isError) void bump($, e.agentId, 'reads').catch(() => {})
+    void ready
+      .then(async () => {
+        const at = await $.clock.now()
+        if (e.agentId) await touchAgent($, e.agentId, a => (a.endedAt ? { ...a, endedAt: undefined } : a))
+        else await touchAgent($, 'main', a => ({ ...a, startedAt: at, endedAt: undefined }))
+        await redraw($)
+      })
+      .catch(() => {})
     return r
   }).catch(($, e, next) => next(e))
 
-  // The model never waits on the bookkeeping: the result goes back first.
-  on('tool.call', { tool: EDIT_TOOLS }, async ($, e, next) => {
+  on('turn.complete', async ($, e, next) => {
+    void ready
+      .then(async () => {
+        const at = await $.clock.now()
+        await touchAgent($, e.agentId ?? 'main', a => ({ ...a, endedAt: at }))
+        await redraw($)
+      })
+      .catch(() => {})
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('tool.check', async ($, e, next) => {
+    const v = await next(e)
+    if (e.agentId) {
+      const id = e.agentId
+      const asked = v.decision === 'ask'
+      void ready
+        .then(() => touchAgent($, id, a => ({ ...a, asks: a.asks + (asked ? 1 : 0), ...(a.endedAt ? { endedAt: undefined } : {}) })))
+        .catch(() => {})
+    }
+    return v
+  }).catch(($, e, next) => next(e))
+
+  // Every tool: the model never waits on the bookkeeping, the result goes back first.
+  on('tool.call', async ($, e, next) => {
     const r = await next(e)
-    if (r.isError || r.result === undefined) return r
-    void ready.then(() => track($, String(e.tool) as Change['tool'], e.tool_use_id, e.agentId, r.result)).catch(() => {})
+    if (r.deny !== undefined) return r
+    void ready.then(() => afterCall($, e as unknown as Record<string, unknown>, r)).catch(() => {})
     return r
   }).catch(($, e, next) => next(e))
 
@@ -299,25 +441,69 @@ export const register: Register = on => {
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const v = await read($, view)
     const { Box, Text, Button } = $.ui.resolve(e)
+    if (st.tagWidth === undefined) {
+      // Fixed per session at the first render. State writes are refused while drawing: retag after this hook settles.
+      st.tagWidth = e.props.bodyColumns >= 90 ? 18 : 12
+      void Promise.resolve()
+        .then(() => retag($))
+        .then(() => redraw($))
+        .catch(() => {})
+    }
     if (!v) return <Text dimColor>Code tracer loading…</Text>
+    const go = (fn: () => void) => async () => {
+      fn()
+      await redraw($)
+    }
     const handlers = {
-      mode: async () => {
+      mode: go(() => {
         st.mode = st.mode === 'feed' ? 'files' : 'feed'
-        await redraw($)
-      },
-      filter: (id: string) => async () => {
-        st.filter = st.filter === id ? undefined : id
+      }),
+      filter: (id: string) =>
+        go(() => {
+          st.filter = st.filter === id ? undefined : id
+          st.page = 0
+          st.filePage = 0
+        }),
+      expand: (id: string) =>
+        go(() => {
+          st.expanded = st.expanded.includes(id) ? st.expanded.filter(x => x !== id) : [...st.expanded, id]
+        }),
+      page: (delta: number) =>
+        go(() => {
+          st.page = Math.max(0, st.page + delta)
+        }),
+      filePage: (delta: number) =>
+        go(() => {
+          st.filePage = Math.max(0, st.filePage + delta)
+        }),
+      showConflicts: go(() => {
+        st.mode = 'files'
+        st.filter = undefined
+        st.pathFilter = undefined
+        st.focusPath = undefined
+        st.filePage = 0
+      }),
+      clear: go(() => {
+        st.filter = undefined
+        st.pathFilter = undefined
         st.page = 0
-        await redraw($)
-      },
-      expand: (id: string) => async () => {
-        st.expanded = st.expanded.includes(id) ? st.expanded.filter(x => x !== id) : [...st.expanded, id]
-        await redraw($)
-      },
-      page: (delta: number) => async () => {
-        st.page = Math.max(0, st.page + delta)
-        await redraw($)
-      },
+        st.filePage = 0
+      }),
+      file: (path: string) =>
+        go(() => {
+          if (st.mode === 'feed') {
+            st.mode = 'files'
+            st.focusPath = path
+            st.filePage = 0
+          } else {
+            st.mode = 'feed'
+            st.pathFilter = path
+            st.page = 0
+          }
+        }),
+      showAll: go(() => {
+        st.showAll = true
+      }),
     }
     return drawPane({ Box, Text, Button }, v, e.props.bodyColumns, st.tz, handlers)
   })
