@@ -3,7 +3,7 @@
   "owner": {
     "name": "Tempered Works"
   },
-  "description": "Tempered Works plugins for Claude Code: interface mods (limit-resume, ship-state, timeline, followups, lessons, focus-group) and skill packs (tempered-skills, multi-harness).",
+  "description": "Tempered Works plugins for Claude Code: interface mods (limit-resume, ship-state, timeline, followups, lessons, focus-group, code-tracer) and skill packs (tempered-skills, multi-harness).",
   "plugins": [
     {
       "name": "limit-resume",
@@ -34,6 +34,11 @@
       "name": "focus-group",
       "source": "./mods/focus-group",
       "description": "Side pane for a self-staffing-focus-group run: roster, gates G0-G5, findings. Runs reviewers and verifiers in the foreground and refuses a G4/G5 pass while an agent still runs."
+    },
+    {
+      "name": "code-tracer",
+      "source": "./mods/code-tracer",
+      "description": "Side pane of every code change in the session: file and lines, the diff hunk, the agent that made it, its stated why, the test run that covered it, and a signed ambition sum with its signals; marks files two agents changed. No model calls unless the opt-in reflector is on."
     },
     {
       "name": "tempered-skills",
