@@ -1,8 +1,8 @@
 # Tempered Plugins
 
-This repository holds plugins from Tempered Works for AI coding tools. Six plugins are for Claude Code. One plugin is for Codex.
+This repository holds plugins from Tempered Works for AI coding tools. Seven plugins are for Claude Code. One plugin is for Codex.
 
-A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The six Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
+A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The seven Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
 
 ## What is in this repository
 
@@ -14,6 +14,7 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 | `followups/` | Claude Code | Shows 4 options for your next prompt above the prompt box after each answer. You press 1 to 4 to put one in the box. |
 | `lessons/` | Claude Code | Finds wins and pitfalls in your prompts. It then asks Claude to run your own `win-logger` and `pitfall-logger` skills. The status line shows how many entries you logged. |
 | `focus-group/` | Claude Code | Shows a side pane for a run of the `self-staffing-focus-group` skill: the agents, the gates G0 to G5, and the findings. Makes reviewer and verifier agents run in the foreground, and refuses a "verified" result while an agent still runs. |
+| `code-tracer/` | Claude Code | Shows a side pane of every code change in the session: the file and lines, the diff hunk, the agent that made it, its stated reason, and an ambition score with the signals behind it. `/code-tracer export` writes a markdown report. |
 | `multi-harness/` | Codex | Gives Codex 6 skills to plan large work in waves and to track it to completion. |
 | `.claude-plugin/marketplace.json` | Claude Code | Lists the 6 Claude Code plugins so that Claude Code can install them from this repository. |
 
@@ -30,6 +31,8 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 **lessons.** The same mistakes happen again, and good patterns get lost. A skill that logs them is useful, but it often does not run at the right moment. lessons makes the skill run. It reads your prompts for praise, frustration, and repeated requests. When it finds one, it tells Claude to run the matching skill after Claude finishes your request. The skill always asks "Log it? y/n" before it writes. You stay in control.
 
 **focus-group.** The `self-staffing-focus-group` skill sends work to reviewer and verifier subagents. These subagents run in the background by default. In tests, the skill sometimes gave its answer before a verifier returned, and the verifier then found a blocker. focus-group stops this. It runs reviewers and verifiers in the foreground, so the skill waits for them. Its `record` tool refuses a G4 or G5 pass while an agent still runs. The side pane shows what the run waits for, so you know when to trust the result.
+
+**code-tracer.** In a session with several subagents, code changes land from many places at once. The transcript shows tool calls, not code. To learn what an agent changed and why, you scroll or you ask Claude. code-tracer shows each change tied to its code: the file and lines, the diff, the agent, and the reason the agent gave in the sentence before the edit. It also scores each change for ambition: outcome relative to effort, never raw size. A new capability, tests or callers touched, and reach into files that import the changed one score up; a cosmetic edit, no stated reason, repeated edits of the same lines and user-corrected edits score down. The number is never shown without its signals. code-tracer makes no model calls.
 
 **multi-harness.** Large product work needs a plan, branch and pull request gates, tracker updates, QA evidence, and a safe closeout. multi-harness gives Codex a repeatable method for these steps. The method is the same for every product.
 
@@ -54,6 +57,7 @@ Use one of these 2 methods.
 /plugin install followups@tempered-plugins
 /plugin install lessons@tempered-plugins
 /plugin install focus-group@tempered-plugins
+/plugin install code-tracer@tempered-plugins
 ```
 
 Install only the plugins that you want.
@@ -235,6 +239,25 @@ focus-group reads each agent from the `Persona:`, `Role:` and `Focus:` lines of 
 
 Usage cost: focus-group makes no model calls. While an agent runs, it adds 1 line to each Agent tool result that the skill reads.
 
+## How to use code-tracer
+
+code-tracer needs no action. The pane opens on the first code change the main loop makes. Type `/code-tracer` to open or close it.
+
+| Zone | Meaning |
+|---|---|
+| Header | Repo, branch, number of changes and files, and the session's mean ambition score. |
+| Agents | One row per agent: `main` or the subagent type, its model, files touched, lines added and removed, edits per read, and its mean score. `running` marks an agent that has not returned. Press a row to show only that agent's changes. |
+| Changes | Newest first. Each change shows the time, the agent, `path:lines`, `+added −removed`, the score, the `why` line, the signals, and the first 6 lines of the diff. `more` shows the whole hunk. |
+| Files | Press `by file`. Each path lists the agents that changed it and their line ranges. A path with 2 or more agents is marked `⚠ 2 agents`; overlapping line ranges are marked `overlapping lines` in orange. |
+
+The `why` is the first sentence the agent wrote before the edit. When the agent wrote nothing, the why is the description it was spawned with, else `—`.
+
+The score runs from 0 to 10. Points: a new exported function, class or route (+2); a test, config or caller of the same file touched by the same agent in this session (+2); the changed file is referenced by 3 or more other files (+2); the hunk changes behavior, not only whitespace or comments (+1); a why is present (+1). Penalties: the same lines edited again by the same agent (−1 each); the edit was corrected by you in the permission dialog (−1). Signals show beside the number, for example `new capability · reach 4 files · no tests`.
+
+`/code-tracer export` writes `~/.claude/code-tracer/<repo>/<session>.md`: one section per agent, one block per change with its why, signals and diff. Use it as the start of a pull request description.
+
+code-tracer stores the session's changes in `~/.claude/code-tracer/<repo>/<session>.jsonl` and reads them back when the session resumes. It runs one `git grep` per changed file to count references. It makes no model calls.
+
 ## How to use limit-resume
 
 limit-resume needs no action. It starts with each session.
@@ -278,6 +301,7 @@ node limit-resume/check.ts
 node ship-state/check.ts
 node followups/checks/ask.check.ts
 node lessons/checks/detect.check.ts
+node code-tracer/check.ts
 bash timeline/checks/run.sh
 ```
 
@@ -288,6 +312,8 @@ To run the behavior test of timeline, run `claude plugin test timeline`. It runs
 To run the behavior test of followups, run `claude plugin test followups`. It runs 8 cases on the terminal and desktop surfaces.
 
 To run the behavior test of lessons, run `claude plugin test lessons`. It runs 9 cases.
+
+To run the behavior test of code-tracer, run `claude plugin test code-tracer`. It runs 3 cases on the terminal and desktop surfaces.
 
 To run the behavior test of focus-group, run `claude plugin test focus-group`. It runs 3 cases. The pane cases run on the terminal, desktop and mobile surfaces.
 
