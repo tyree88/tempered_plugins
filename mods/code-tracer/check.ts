@@ -4,12 +4,13 @@ import { counts, declarations, isCodePath, isCosmetic, isTestPath, normalizePath
 import { ellipsize, ellipsizeAll } from './hooks/ellipsis.ts'
 import { toMarkdown } from './hooks/export.ts'
 import { importersOf, reachQuery } from './hooks/reach.ts'
+import { buildPrompt, candidates, closeOn, composeSection, openOnes, parseFindings } from './hooks/reflect.ts'
 import { bashTarget, detectRun, isReadCommand, revertedPaths } from './hooks/runs.ts'
 import { agentRows, attachRun, evidenceOf, fileRows, namesFile, rescore } from './hooks/score.ts'
 import { rebasePath, type Placed } from './hooks/spans.ts'
 import { tagsFor } from './hooks/tags.ts'
 import { firstSentence, whyOf } from './hooks/why.ts'
-import type { Agent, Change } from './types/index.d.ts'
+import type { Agent, Change, Improvement } from './types/index.d.ts'
 
 const hunk = (newStart: number, lines: string[]) => ({ oldStart: newStart, oldLines: lines.filter(l => !l.startsWith('+')).length, newStart, newLines: lines.filter(l => !l.startsWith('-')).length, lines })
 const replace = (at: number, n: number) => hunk(at, [...Array.from({ length: n }, (_, i) => `-old${i}`), ...Array.from({ length: n }, (_, i) => `+new${i}`)])
@@ -214,5 +215,28 @@ assert.deepEqual(whyOf([], 'tu9', ''), { why: '', whySource: 'none' })
 const md = toMarkdown('app', 'main', rescore([impl, test]), agents)
 assert.ok(md.includes('## main') && md.includes('### src/parse.ts:1-3') && md.includes('```diff') && md.includes('**Why:** because') && md.includes('**Ambition +'))
 assert.ok(!/\d+\/10\b/.test(md))
+
+// reflector: weak changes are candidates once; findings parse strictly; a later touch closes them
+const strong = rescore([impl, test])[0]!
+const weak = rescore([change({ path: 'src/w.ts', whySource: 'none', why: '', hunks: [hunk(1, ['-a ', '+a'])] })])[0]!
+assert.deepEqual(candidates([strong, weak], []).map(c => c.id), [weak.id])
+const imp: Improvement = { v: 1, id: 'r1', changeId: weak.id, path: 'src/w.ts', kind: 'scope', suggestion: 'Do the real change.', at: 50 }
+assert.deepEqual(candidates([strong, weak], [imp]), []) // reviewed once, not again
+assert.ok(buildPrompt([weak]).includes(`changeId: ${weak.id}`) && buildPrompt([weak]).includes('cosmetic'))
+const reply = `Here you go:\n[{"changeId":"${weak.id}","kind":"scope","suggestion":"  Make the  edit do something. "},{"changeId":"nope","kind":"tests","suggestion":"x"},{"changeId":"${weak.id}","kind":"tests","suggestion":"dup"},{"changeId":"${strong.id}","kind":"bogus","suggestion":"x"}]`
+assert.deepEqual(parseFindings(reply, [weak, strong]), [{ changeId: weak.id, kind: 'scope', suggestion: 'Make the edit do something.' }])
+assert.deepEqual(parseFindings('no json here', [weak]), [])
+assert.deepEqual(parseFindings('[]', [weak]), [])
+assert.ok(parseFindings(`[{"changeId":"${weak.id}","kind":"cleanup","suggestion":"${'long '.repeat(60)}"}]`, [weak])[0]!.suggestion.length <= 160)
+const elsewhere = change({ path: 'src/elsewhere.ts', at: 60 })
+const samePath = change({ path: 'src/w.ts', at: 61 })
+assert.equal(closeOn([imp], elsewhere, [weak, elsewhere])[0]!.closedAt, undefined)
+assert.deepEqual(closeOn([imp], samePath, [weak, samePath])[0]!.closedBy, samePath.id)
+const testFor = change({ path: 'src/w.test.ts', at: 62 })
+assert.equal(closeOn([imp], testFor, [weak, testFor])[0]!.closedAt, 62) // `w.test.ts` names `w`
+assert.equal(closeOn([imp], change({ path: 'src/w.ts', at: 40 }), [weak])[0]!.closedAt, undefined) // earlier than the finding
+assert.equal(openOnes([imp, { ...imp, id: 'r2', closedAt: 1 }]).length, 1)
+assert.equal(composeSection([]), '')
+assert.ok(composeSection([imp]).includes(`- [scope] src/w.ts: Do the real change. (change ${weak.id})`))
 
 console.log('code-tracer check: ok')

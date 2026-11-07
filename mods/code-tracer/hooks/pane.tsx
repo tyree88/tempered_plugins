@@ -148,6 +148,18 @@ function drawChange(ui: UI, c: Change, v: View, tz: number, columns: number, act
         </Box>
       )}
       {!unscored &&
+        v.improvements
+          .filter(i => i.changeId === c.id)
+          .map(i => (
+            <Box key={`imp:${i.id}`}>
+              <Text wrap="wrap">
+                {`${pad}↳ `}
+                <Text color="blue">{i.kind}</Text>
+                {`  ${i.suggestion}`}
+              </Text>
+            </Box>
+          ))}
+      {!unscored &&
         (isOpen
           ? c.hunks.flatMap((k, hi) => [
               <Text key={`hh:${c.id}-${hi}`} dimColor wrap="truncate">{`${pad}@@ ${k.oldStart},${k.oldLines} → ${k.newStart},${k.newLines}`}</Text>,
@@ -263,7 +275,15 @@ export function drawPane(ui: UI, v: View, columns: number, tz: number, act: Hand
   const isWide = columns >= WIDE
   const ev = v.evidence
   const h1 = `${plural(v.changes, 'change')} · ${plural(v.files, 'file')} · ${plural(v.agents.length + v.hiddenDone, 'agent')} (${v.running} running)`
-  const h2 = [`tests ran after ${ev.testsAfter} of ${ev.changes}`, `${ev.noWhy} no why`, ev.reverted ? `${ev.reverted} reverted` : '', ev.sharedFiles ? `${plural(ev.sharedFiles, 'shared file')}` : ''].filter(Boolean).join(' · ')
+  const h2 = [
+    `tests ran after ${ev.testsAfter} of ${ev.changes}`,
+    `${ev.noWhy} no why`,
+    ev.reverted ? `${ev.reverted} reverted` : '',
+    ev.sharedFiles ? `${plural(ev.sharedFiles, 'shared file')}` : '',
+    v.reflector.open ? `${v.reflector.open} to improve` : v.reflector.lastError ? 'reflector failed' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
   const h3 = `${v.repo}${v.branch ? ` ⎇ ${v.branch}` : ''}`
   const oneLine = isWide && `${h1} · ${h2} · ${h3}`.length <= columns
   const paging = (page: number, pages: number, older: string, newer: string, go: (d: number) => () => void) =>

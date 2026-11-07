@@ -29,7 +29,7 @@ const world = (on: On) => {
   mock.store(on)
   mock.env(on, { HOME: '/home' })
   const clock = mock.clock(on, { now: T0 })
-  const state = { written: {} as Record<string, string>, opened: [] as string[], messages: {} as Record<string, Msg[]>, importers: 3, failBash: false, stdout: '' }
+  const state = { written: {} as Record<string, string>, opened: [] as string[], messages: {} as Record<string, Msg[]>, importers: 3, failBash: false, stdout: '', asked: [] as string[], reply: '[]' }
   on('session.id', async () => ({ value: 'sess-abcdef12' }))
   on('session.cwd', async () => ({ value: '/repo' }))
   on('session.start', async (_, e) => ({ cwd: e.cwd }))
@@ -70,6 +70,12 @@ const world = (on: On) => {
   on('turn.start', async (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', (_, e) => ({ text: e.answer }))
   on('tool.check', async () => ({ decision: 'allow' as const, reason: 'test' }))
+  on('prompt.compose', async () => ({ sections: [{ id: 'base', text: 'base prompt', scope: 'shared' as const }] }))
+  on('model.complete', async (_, e) => {
+    state.asked.push(e.prompt)
+    const usage = { input_tokens: 10, output_tokens: 20, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+    return { value: { isAnswered: true, text: state.reply, usage } }
+  })
   on('tool.call', async (_, e) => {
     if (e.tool === 'Edit') {
       const path = String(e.file_path)
@@ -109,6 +115,8 @@ const bash = ($: Engine, agentId: string | undefined, tool_use_id: string, comma
 
 const complete = ($: Engine, agentId: string | undefined) =>
   $.turn.complete({ ...(agentId ? { agentId } : {}), answer: 'done', durationMs: 1, isAborted: false, turnId: `t-${agentId ?? 'main'}`, reason: 'answer' })
+
+const COMPOSE = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: ['terminal'], tools: ['Edit', 'Bash'], outputStyle: null, traits: [] } as never
 
 const said = (text: string, tool_use_id: string): Msg[] => [{ role: 'assistant', text, toolUses: [{ tool_use_id, tool: 'Edit', input: {} }] }]
 
@@ -261,4 +269,57 @@ test('a failed then passing run shows ✓ once; README gets no test token; expor
   expect(md).toContain('**Why:** Add a parser so callers stop hand-rolling it.')
   expect(md).toMatch(/\*\*Ambition \+\d+:\*\* \+2 adds export parse/)
   expect(md).not.toMatch(NO_QUOTIENT)
+})
+
+test('the reflector reviews weak changes after a main turn, feeds open findings forward and closes them on a touch', { options: { reflector: true } }, async ($, on) => {
+  const { clock, state } = world(on)
+  await start($, clock)
+  state.importers = 0
+  await edit($, undefined, 'tu1', '/repo/src/weak.ts', 'foo( a )', 'foo(a)') // cosmetic, no why: a candidate
+  await clock.settle()
+  state.reply = 'Sure:\n[{"changeId":"sess-abc-1","kind":"scope","suggestion":"Make the edit change behaviour or drop it."}]'
+  await complete($, undefined)
+  await clock.settle()
+  expect(state.asked).toHaveLength(1)
+  expect(state.asked[0]).toContain('changeId: sess-abc-1')
+
+  let ui = await $.ui.mount(pane(70))
+  expect((await ui.find({ key: 'head2' }))!.text).toMatch(/1 to improve$/)
+  expect((await ui.find({ key: 'imp:sess-abc-r1' }))!.text).toMatch(/↳ scope\s+Make the edit change behaviour or drop it\./)
+  await ui.unmount()
+  const composed = await $.prompt.compose(COMPOSE)
+  expect(composed.sections.map(s => s.id)).toEqual(['base', 'code-tracer:reflector'])
+  expect(composed.sections[1]!.text).toContain('- [scope] src/weak.ts: Make the edit change behaviour or drop it. (change sess-abc-1)')
+  const stored = state.written[`${DIR}/sess-abcdef12.jsonl`]!
+  expect(stored).toContain('"kind":"improvement"')
+
+  // a turn with no new change asks nothing; a later edit of the same path closes the finding
+  await complete($, undefined)
+  await clock.settle()
+  expect(state.asked).toHaveLength(1)
+  state.reply = '[]'
+  await edit($, undefined, 'tu2', '/repo/src/weak.ts', 'foo(a)', 'bar(a)')
+  await clock.settle()
+  ui = await $.ui.mount(pane(70))
+  expect(await ui.find({ key: 'imp:sess-abc-r1' })).toBeUndefined()
+  expect((await ui.find({ key: 'head2' }))!.text).not.toMatch(/to improve/)
+  await ui.unmount()
+  expect((await $.prompt.compose(COMPOSE)).sections.map(s => s.id)).toEqual(['base'])
+})
+
+test('with the reflector off nothing is asked; /code-tracer reflect runs one review on demand', async ($, on) => {
+  const { clock, state } = world(on)
+  await start($, clock)
+  state.importers = 0
+  await edit($, undefined, 'tu1', '/repo/src/weak.ts', 'foo( a )', 'foo(a)')
+  await complete($, undefined)
+  await clock.settle()
+  expect(state.asked).toHaveLength(0)
+  state.reply = '[{"changeId":"sess-abc-1","kind":"cleanup","suggestion":"Remove the no-op edit."}]'
+  const r = await $.command.run({ command: 'code-tracer', args: 'reflect', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } } as never)
+  expect(r.text).toBe('code-tracer: 1 improvement added; see the pane.')
+  expect(state.asked).toHaveLength(1)
+  const again = await $.command.run({ command: 'code-tracer', args: 'reflect', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } } as never)
+  expect(again.text).toBe('code-tracer: nothing to improve among the unreviewed changes.')
+  expect(state.asked).toHaveLength(1)
 })

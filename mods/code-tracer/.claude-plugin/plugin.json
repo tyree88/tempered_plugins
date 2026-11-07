@@ -1,9 +1,17 @@
 {
   "name": "code-tracer",
-  "version": "0.2.0",
-  "description": "Side pane of every code change in the session, tied to the code: file and lines, the diff hunk, the agent that made it, its stated why, the test run that covered it, and a signed ambition sum with its signals; marks files two agents changed. No model calls.",
+  "version": "0.3.0",
+  "description": "Side pane of every code change in the session, tied to the code: file and lines, the diff hunk, the agent that made it, its stated why, the test run that covered it, and a signed ambition sum with its signals; marks files two agents changed. No model calls unless the opt-in reflector is on.",
   "author": {
     "name": "Tempered Works"
   },
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "reflector": {
+      "type": "boolean",
+      "title": "Reflector",
+      "description": "After each main-loop turn, one Haiku call reviews the weak changes of the session and lists one improvement per change under it; open items are fed to the next step. Off: no model calls at all. `/code-tracer reflect` runs one review on demand either way.",
+      "default": false
+    }
+  }
 }

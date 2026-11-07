@@ -1,12 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface as Engine, Register } from 'claude-code'
 
-import type { Agent, Change, StoreRow, View } from '../types'
+import type { Agent, Change, Improvement, StoreRow, View } from '../types'
 import { changeOf, normalizePath, patchesFromBash, patchesFromEdit } from './capture.ts'
 import { ellipsize } from './ellipsis.ts'
 import { toMarkdown } from './export.ts'
 import { drawPane } from './pane'
 import { importersOf, reachQuery } from './reach.ts'
+import { SYSTEM, buildPrompt, candidates, closeOn, composeSection, openOnes, parseFindings } from './reflect.ts'
 import { bashTarget, detectRun, isReadCommand, revertedPaths } from './runs.ts'
 import { agentOf, agentRows, attachRun, evidenceOf, fileRows, rescore } from './score.ts'
 import { tagsFor } from './tags.ts'
@@ -15,6 +16,7 @@ import { whyOf } from './why.ts'
 const view = atom({ plugin: 'code-tracer', key: 'view' } as const, null)
 const changes = atom({ plugin: 'code-tracer', key: 'changes' } as const, [] as Change[])
 const agents = atom({ plugin: 'code-tracer', key: 'agents' } as const, [] as Agent[])
+const improvements = atom({ plugin: 'code-tracer', key: 'improvements' } as const, [] as Improvement[])
 
 const PANE = 'code-tracer'
 const PAGE_SIZE = 20
@@ -51,6 +53,12 @@ const st = {
   hasWarnedWrite: false,
   storeFull: false,
   drawSeq: 0,
+  reflector: false, // userConfig.reflector: one haiku call after each main turn that changed code
+  rseq: 0,
+  reflecting: false,
+  changesSinceReflect: 0,
+  reflectAt: undefined as number | undefined,
+  reflectError: undefined as string | undefined,
 }
 
 const tagWidth = () => st.tagWidth ?? 12
@@ -91,7 +99,11 @@ async function importers($: Engine, path: string): Promise<string[] | undefined>
 let chain: Promise<unknown> = Promise.resolve()
 async function persist($: Engine) {
   if (!st.home || st.storeFull) return
-  const rows: StoreRow[] = [...(await read($, agents)).map(a => ({ kind: 'agent' as const, ...a })), ...(await read($, changes)).map(c => ({ kind: 'change' as const, ...c }))]
+  const rows: StoreRow[] = [
+    ...(await read($, agents)).map(a => ({ kind: 'agent' as const, ...a })),
+    ...(await read($, changes)).map(c => ({ kind: 'change' as const, ...c })),
+    ...(await read($, improvements)).map(i => ({ kind: 'improvement' as const, item: i })),
+  ]
   const text = rows.map(r => JSON.stringify(r)).join('\n')
   if (text.length > STORE_MAX) {
     st.storeFull = true
@@ -113,24 +125,25 @@ const parseRows = (text: string): StoreRow[] =>
     .flatMap(line => {
       try {
         const r = JSON.parse(line) as StoreRow
-        return (r.kind === 'change' && r.v === 1 && r.id && Array.isArray(r.hunks)) || (r.kind === 'agent' && r.agentId) ? [r] : []
+        return (r.kind === 'change' && r.v === 1 && r.id && Array.isArray(r.hunks)) || (r.kind === 'agent' && r.agentId) || (r.kind === 'improvement' && r.item?.v === 1 && r.item.changeId) ? [r] : []
       } catch {
         return []
       }
     })
 
 // Changes come from the newest part (the current conversation); agents and their `#N` counters from every part.
-async function load($: Engine): Promise<{ changes: Change[]; agents: Agent[] }> {
+async function load($: Engine): Promise<{ changes: Change[]; agents: Agent[]; improvements: Improvement[] }> {
   const listed = await $.fs.list(storeDir()).catch(() => [])
   const parts = listed
     .filter(f => f.kind === 'file')
     .map(f => (f.name === partName(0) ? 0 : (f.name.match(/^(.+)-(\d+)\.jsonl$/) ?? [])[1] === st.session ? Number(f.name.match(/-(\d+)\.jsonl$/)?.[1]) : -1))
     .filter(n => n >= 0)
     .sort((a, b) => a - b)
-  if (!parts.length) return { changes: [], agents: [] }
+  if (!parts.length) return { changes: [], agents: [], improvements: [] }
   st.part = parts.at(-1) ?? 0
   const byId = new Map<string, Agent>()
   let latest: Change[] = []
+  let found: Improvement[] = []
   for (const n of parts) {
     const rows = parseRows((await $.fs.read(`${storeDir()}/${partName(n)}`).catch(() => '')) as string)
     for (const r of rows) {
@@ -139,9 +152,12 @@ async function load($: Engine): Promise<{ changes: Change[]; agents: Agent[] }> 
         byId.set(a.agentId, a)
       }
     }
-    if (n === st.part) latest = rows.flatMap(r => (r.kind === 'change' ? [(({ kind: _kind, ...c }) => c)(r)] : []))
+    if (n === st.part) {
+      latest = rows.flatMap(r => (r.kind === 'change' ? [(({ kind: _kind, ...c }) => c)(r)] : []))
+      found = rows.flatMap(r => (r.kind === 'improvement' ? [r.item] : []))
+    }
   }
-  return { changes: latest, agents: [...byId.values()] }
+  return { changes: latest, agents: [...byId.values()], improvements: found }
 }
 
 // Every agent's tag recomputed over the spawn order at the session's tag width, so `#N` counters stay stable.
@@ -181,6 +197,7 @@ const redraw = async ($: Engine) => {
   const touched = st.filter ? new Set(all.filter(c => agentOf(c) === st.filter).map(c => c.path)) : undefined
   const files = fileRows(all, known, touched).sort((x, y) => Number(y.path === st.focusPath) - Number(x.path === st.focusPath))
   const filePages = Math.max(1, Math.ceil(files.length / FILE_PAGE_SIZE))
+  const open = openOnes(await read($, improvements))
   st.filePage = Math.min(st.filePage, filePages - 1)
   const next: View = {
     repo: st.repo,
@@ -204,6 +221,8 @@ const redraw = async ($: Engine) => {
     pages,
     filePage: st.filePage,
     filePages,
+    improvements: open,
+    reflector: { enabled: st.reflector, open: open.length, ...(st.reflectAt !== undefined ? { lastAt: st.reflectAt } : {}), ...(st.reflectError ? { lastError: st.reflectError } : {}) },
   }
   if (mine !== st.drawSeq) return
   await update($, view, prev => (mine === st.drawSeq ? next : prev))
@@ -233,12 +252,48 @@ async function track($: Engine, tool: Change['tool'], toolUseId: string, agentId
   for (const patch of patches) {
     const base = changeOf({ v: 1, id: `${st.session.slice(0, 8)}-${++st.seq}`, at, session: st.session, ...(agentId ? { agentId } : {}), tool, ...why }, patch, st.cwd, st.root)
     const c: Change = patch.isDeleted || patch.isTooLarge ? base : { ...base, importerPaths: await importers($, base.path) }
-    await update($, changes, prev => rescore([...prev, c]))
+    const all = await update($, changes, prev => rescore([...prev, c]))
+    await update($, improvements, prev => closeOn(prev, c, all))
+    st.changesSinceReflect += 1
   }
   await persist($)
   await touchAgent($, agentId ?? 'main', a => ({ ...a, edits: a.edits + 1 }))
   if (!agentId) await autoOpen($)
   await redraw($)
+}
+
+// One reflector cycle: the weak, unreviewed changes go to haiku once; each finding becomes an improvement row.
+// Returns how many rows were added, or undefined when the call was refused or unanswered (the reason is kept for the pane).
+async function reflect($: Engine): Promise<number | undefined> {
+  if (st.reflecting) return 0
+  st.reflecting = true
+  try {
+    const all = await read($, changes)
+    const cands = candidates(all, await read($, improvements))
+    st.changesSinceReflect = 0
+    if (!cands.length) return 0
+    const reply = await $.model.complete({ model: 'haiku', effort: 'low', maxTokens: 800, timeoutMs: 20_000, system: SYSTEM, prompt: buildPrompt(cands) }).catch((err: unknown) => {
+      st.reflectError = err instanceof Error ? err.message : String(err)
+      return null
+    })
+    if (!reply) return undefined
+    if (!reply.isAnswered) {
+      st.reflectError = reply.reason
+      return undefined
+    }
+    st.reflectError = undefined
+    st.reflectAt = await $.clock.now()
+    const at = st.reflectAt
+    const found = parseFindings(reply.text, cands).map(f => ({ v: 1 as const, id: `${st.session.slice(0, 8)}-r${++st.rseq}`, changeId: f.changeId, path: cands.find(c => c.id === f.changeId)?.path ?? '', kind: f.kind, suggestion: f.suggestion, at }))
+    if (found.length) {
+      await update($, improvements, prev => [...prev, ...found])
+      await persist($)
+    }
+    return found.length
+  } finally {
+    st.reflecting = false
+    await redraw($)
+  }
 }
 
 const lastTargetOf = (tool: string, e: Record<string, unknown>) => {
@@ -291,13 +346,14 @@ async function afterCall($: Engine, e: Record<string, unknown>, r: { isError?: b
   await redraw($)
 }
 
-export const register: Register = on => {
+export const register: Register = (on, options) => {
   let ready: Promise<void> = Promise.resolve()
+  st.reflector = options.reflector === true
 
   on('session.start', async ($, e, next) => {
     st.session = await $.session.id()
     st.home = (await $.env.get('HOME')) ?? ''
-    await $.command.register({ name: 'code-tracer', description: 'Show or hide the code tracer pane; `/code-tracer export` writes a markdown report' })
+    await $.command.register({ name: 'code-tracer', description: 'Show or hide the code tracer pane; `/code-tracer export` writes a markdown report; `/code-tracer reflect` runs one reflector review (one haiku call)' })
     ready = (async () => {
       st.cwd = await $.session.cwd()
       const top = await run($, ['git', '-C', st.cwd, 'rev-parse', '--show-toplevel'])
@@ -315,6 +371,10 @@ export const register: Register = on => {
             if (r?.ok) st.lastOk.set(`${agentOf(c)}:${kind}`, Math.max(st.lastOk.get(`${agentOf(c)}:${kind}`) ?? 0, r.at))
           }
         await update($, changes, prev => (prev.length ? prev : stored.changes))
+      }
+      if (stored.improvements.length) {
+        st.rseq = Math.max(st.rseq, ...stored.improvements.map(i => Number(i.id.split('-r').at(-1)) || 0))
+        await update($, improvements, prev => (prev.length ? prev : stored.improvements))
       }
       if (stored.agents.length) {
         const at = await $.clock.now()
@@ -344,7 +404,10 @@ export const register: Register = on => {
       st.filePage = 0
       st.hasAutoOpened = false
       await update($, changes, () => [])
+      await update($, improvements, () => [])
       await update($, agents, prev => prev.map(a => (a.endedAt ? a : { ...a, endedAt: at })))
+      st.rseq = 0
+      st.changesSinceReflect = 0
     }
     return next(e)
   })
@@ -391,9 +454,17 @@ export const register: Register = on => {
         const at = await $.clock.now()
         await touchAgent($, e.agentId ?? 'main', a => ({ ...a, endedAt: at }))
         await redraw($)
+        if (!e.agentId && st.reflector && st.changesSinceReflect > 0 && e.reason === 'answer') await reflect($)
       })
       .catch(() => {})
     return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // Open findings reach the next step as one session section; nothing is added while none is open.
+  on('prompt.compose', async ($, e, next) => {
+    const r = await next(e)
+    const text = composeSection(openOnes(await read($, improvements)))
+    return text ? { ...r, sections: [...r.sections, { id: 'code-tracer:reflector', text, scope: 'session' as const }] } : r
   }).catch(($, e, next) => next(e))
 
   on('tool.check', async ($, e, next) => {
@@ -418,6 +489,12 @@ export const register: Register = on => {
 
   on('command.run', { command: 'code-tracer' }, async ($, e) => {
     await ready
+    if (e.args.trim() === 'reflect') {
+      if (!(await read($, changes)).length) return { text: 'code-tracer: no changes to review yet.' }
+      const n = await reflect($)
+      if (n === undefined) return { text: `code-tracer: the review did not run: ${st.reflectError ?? 'unknown'}` }
+      return { text: n ? `code-tracer: ${n} improvement${n === 1 ? '' : 's'} added; see the pane.` : 'code-tracer: nothing to improve among the unreviewed changes.' }
+    }
     if (e.args.trim() === 'export') {
       const all = await read($, changes)
       if (!all.length) return { text: 'code-tracer: no changes to export yet.' }

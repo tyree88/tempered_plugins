@@ -99,12 +99,31 @@ export type View = {
   pages: number
   filePage: number
   filePages: number
+  improvements: Improvement[] // open findings, drawn under their change
+  reflector: Reflector
 }
 
-export type StoreRow = ({ kind: 'change' } & Change) | ({ kind: 'agent' } & Agent)
+export type ImprovementKind = 'tests' | 'callers' | 'scope' | 'cleanup'
+
+// One reflector finding on one change; closed when a later change touches its target.
+export type Improvement = {
+  v: 1
+  id: string // `<session8>-r<seq>`
+  changeId: string
+  path: string
+  kind: ImprovementKind
+  suggestion: string
+  at: number
+  closedAt?: number
+  closedBy?: string // the change id that closed it
+}
+
+export type Reflector = { enabled: boolean; open: number; lastAt?: number; lastError?: string }
+
+export type StoreRow = ({ kind: 'change' } & Change) | ({ kind: 'agent' } & Agent) | { kind: 'improvement'; item: Improvement } // `item`: an Improvement has a `kind` of its own
 
 declare module 'claude-code' {
   interface PluginState {
-    'code-tracer': { view: View | null; changes: Change[]; agents: Agent[] }
+    'code-tracer': { view: View | null; changes: Change[]; agents: Agent[]; improvements: Improvement[] }
   }
 }
