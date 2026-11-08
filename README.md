@@ -262,6 +262,8 @@ Test runs are read from Bash commands: `vitest`, `jest`, `pytest`, `cargo test`,
 
 `/code-tracer export` writes `~/.claude/code-tracer/<repo>/<session>.md`: one section per agent, one block per change with its why, its ambition line and its diff. Use it as the start of a pull request description.
 
+The design, its revisions and the decisions behind them are in `mods/code-tracer/docs/design.md`.
+
 code-tracer stores the session's changes and agents in `~/.claude/code-tracer/<repo>/<session>.jsonl` and reads them back when the session resumes; `/clear` starts a new part file so earlier rows survive. It runs one `git grep` per changed file to find importers. It makes no model calls.
 
 ## How to use limit-resume

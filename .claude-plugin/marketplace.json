@@ -38,7 +38,7 @@
     {
       "name": "code-tracer",
       "source": "./mods/code-tracer",
-      "description": "Side pane of every code change in the session: file and lines, the diff hunk, the agent that made it, its stated why, the test run that covered it, and a signed ambition sum with its signals; marks files two agents changed. No model calls."
+      "description": "Side pane of every code change in the session as cards in the agent's colour: the wrapped diff on the left; why, how it works and next steps on the right, derived from the hunk, the importers and the test runs. Marks files two agents changed. No model calls."
     },
     {
       "name": "tempered-skills",
