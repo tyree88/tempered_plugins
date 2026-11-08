@@ -51,13 +51,13 @@ Use one of these 2 methods.
 
 ```
 /plugin marketplace add tyree88/tempered_plugins
-/plugin install ship-state@tempered-plugins
-/plugin install timeline@tempered-plugins
-/plugin install limit-resume@tempered-plugins
-/plugin install followups@tempered-plugins
-/plugin install lessons@tempered-plugins
-/plugin install focus-group@tempered-plugins
-/plugin install code-tracer@tempered-plugins
+/plugin install ship-state@tempered-marketplace
+/plugin install timeline@tempered-marketplace
+/plugin install limit-resume@tempered-marketplace
+/plugin install followups@tempered-marketplace
+/plugin install lessons@tempered-marketplace
+/plugin install focus-group@tempered-marketplace
+/plugin install code-tracer@tempered-marketplace
 ```
 
 Install only the plugins that you want.
