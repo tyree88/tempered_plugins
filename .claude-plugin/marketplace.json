@@ -3,7 +3,7 @@
   "owner": {
     "name": "Tempered Works"
   },
-  "description": "Tempered Works plugins for Claude Code: interface mods (limit-resume, ship-state, timeline, followups, lessons, focus-group, code-tracer) and skill packs (tempered-skills, multi-harness).",
+  "description": "Tempered Works plugins for Claude Code: interface mods (limit-resume, ship-state, timeline, followups, lessons, focus-group, code-tracer, restyle) and skill packs (tempered-skills, multi-harness).",
   "plugins": [
     {
       "name": "limit-resume",
@@ -39,6 +39,11 @@
       "name": "code-tracer",
       "source": "./mods/code-tracer",
       "description": "Side pane of every code change in the session as cards in the agent's colour: the wrapped diff on the left; why, how it works and next steps on the right, derived from the hunk, the importers and the test runs. Marks files two agents changed. No model calls."
+    },
+    {
+      "name": "restyle",
+      "source": "./mods/restyle",
+      "description": "Alt+click an element in your running web app; pick a motion or typography recipe in the side pane; the prompt box gets the prompt that applies it to that element's source. Fills, never sends. A weekly scout skill proposes new recipes by draft pull request."
     },
     {
       "name": "tempered-skills",
