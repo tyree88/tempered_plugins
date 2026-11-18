@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "page-design-evidence": {
+      "command": "python3",
+      "args": ["server.py"],
+      "cwd": "."
+    }
+  }
+}

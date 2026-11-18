@@ -1,6 +1,6 @@
 # Tempered Plugins
 
-This repository holds plugins from Tempered Works for AI coding tools. Seven plugins are for Claude Code. One plugin is for Codex.
+This repository holds Tempered Works plugins for Claude Code and Codex.
 
 A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The seven Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
 
@@ -16,6 +16,7 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 | `focus-group/` | Claude Code | Shows a side pane for a run of the `self-staffing-focus-group` skill: the agents, the gates G0 to G5, and the findings. Makes reviewer and verifier agents run in the foreground, and refuses a "verified" result while an agent still runs. |
 | `code-tracer/` | Claude Code | Shows a side pane of every code change in the session: the file and lines, the diff hunk, the agent that made it, its stated reason, the test run that covered it, and a signed ambition sum with the signals behind it. It marks files two agents changed and the lines that overlap. `/code-tracer export` writes a markdown report. |
 | `multi-harness/` | Codex | Gives Codex 6 skills to plan large work in waves and to track it to completion. |
+| [`plugins/page-design-review/`](plugins/page-design-review/README.md) | Codex | Reviews pages, ranks evidence-backed design fixes, and applies selected changes in a local project. |
 | `.claude-plugin/marketplace.json` | Claude Code | Lists the 6 Claude Code plugins so that Claude Code can install them from this repository. |
 
 ## Why these plugins exist

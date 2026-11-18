@@ -1,0 +1,20 @@
+{
+  "name": "tempered-works",
+  "interface": {
+    "displayName": "Tempered Works"
+  },
+  "plugins": [
+    {
+      "name": "page-design-review",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

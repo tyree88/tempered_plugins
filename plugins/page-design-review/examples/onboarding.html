@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>First session · Fieldnote</title>
+  <style>
+    :root {
+      --surface: #f7f4eb;
+      --ink: #192c25;
+      --ink-secondary: #526258;
+      --hint: #9b9a95;
+      --line: #d8dcd0;
+      --action: #214d3b;
+      --action-hover: #163c2c;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--surface);
+      color: var(--ink);
+      font: 1rem/1.6 system-ui, sans-serif;
+    }
+    main { max-width: 42rem; margin-inline: auto; padding: 2rem 1.5rem 4rem; }
+    header { padding-block: 2.75rem 2rem; }
+    .wordmark { font-weight: 750; letter-spacing: .06em; }
+    h1, h2 {
+      font-family: Georgia, serif;
+      font-weight: normal;
+      line-height: 1.1;
+      text-wrap: balance;
+      margin: 0 0 .75rem;
+    }
+    h1 { font-size: clamp(2.25rem, 7vw, 4rem); letter-spacing: -.035em; }
+    h2 { font-size: 1.75rem; }
+    p { margin: 0 0 1rem; }
+    .intro { max-width: 36ch; color: var(--ink-secondary); font-size: 1.125rem; }
+    .action {
+      display: inline-flex;
+      align-items: center;
+      min-block-size: 2.75rem;
+      padding: .6rem 1rem;
+      border-radius: .4rem;
+      background: var(--action);
+      color: #fff;
+      font-weight: 650;
+      text-decoration-thickness: .08em;
+      text-underline-offset: .2em;
+    }
+    .action:hover { background: var(--action-hover); }
+    :focus-visible { outline: 2px solid var(--action); outline-offset: 4px; }
+    @media (prefers-reduced-motion: no-preference) {
+      .action { transition: background-color 150ms ease-out; }
+    }
+    .hint { margin-top: .55rem; color: var(--hint); font-size: .875rem; }
+    section { padding-block: 1.5rem; border-top: 1px solid var(--line); }
+    .steps { min-inline-size: 420px; padding-inline-start: 1.4rem; }
+    li { padding-inline-start: .35rem; margin-block: .5rem; }
+    summary { cursor: pointer; padding-block: .6rem; font-weight: 650; }
+    details p { color: var(--ink-secondary); }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="wordmark">Fieldnote</div>
+    <header>
+      <h1>Plan your first field session.</h1>
+      <p class="intro">Gather your route, meeting point, and supplies in one note the whole group can use.</p>
+      <a class="action" href="#setup">Open setup checklist</a>
+      <p class="hint">About 5 minutes to prepare.</p>
+    </header>
+    <section id="setup" tabindex="-1" aria-labelledby="setup-title">
+      <h2 id="setup-title">Setup checklist</h2>
+      <ol class="steps">
+        <li>Choose a route everyone can complete.</li>
+        <li>Share a meeting point and departure time.</li>
+        <li>Agree on supplies and a backup plan for bad weather.</li>
+      </ol>
+      <details>
+        <summary>What should I bring?</summary>
+        <p>Bring water, a charged phone, and a saved route you can open offline.</p>
+      </details>
+    </section>
+  </main>
+</body>
+</html>

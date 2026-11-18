@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "page-design-review",
+  "version": "0.1.0",
+  "description": "Review a page against its users’ task and apply selected design fixes in a local workspace.",
+  "author": { "name": "Tempered Works" },
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Page Design Review",
+        "shortDescription": "Review and refine interfaces",
+        "longDescription": "Review a screenshot or browser page for typography, layout, interaction, visual design, and motion. Get evidence and prioritized fixes. Select findings to preview or apply in your local project.",
+        "developerName": "Tempered Works",
+        "category": "Developer Tools",
+        "capabilities": ["Page review", "Layout and contrast checks", "Local source edits"],
+        "defaultPrompt": "Review this page for its primary task. Rank the fixes and let me choose which to apply.",
+        "logo": "./assets/icon.png",
+        "composerIcon": "./assets/icon.png"
+      }
+    }
+  }
+}
