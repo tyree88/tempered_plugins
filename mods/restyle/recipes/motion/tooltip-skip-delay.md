@@ -2,43 +2,42 @@
 name: Tooltip skip delay
 category: motion
 applies_to: tooltip
-source: owner
+source: https://www.tiktok.com/@charles.unemployed
 added: 2026-11-18
 ---
 
 ## When
 
-A toolbar or icon row where each item has a tooltip. The first tooltip waits, so a pointer passing by does not set off a flash. Once one is open, the user is reading them: the next ones in the same group open at once.
+A toolbar or icon row where each item has a tooltip. If every tooltip waits for its full delay, moving along the row feels slow. Delay only the first one. While the user moves from item to item, open the next tooltips at once.
 
 ## Values
 
-- First tooltip in a group: 600 ms delay, then 150 ms in, `cubic-bezier(0.23, 1, 0.32, 1)`.
-- Skip window: for 300 ms after a tooltip in the group closes, the next one opens with 0 ms delay and 0 ms duration.
-- Exit: 120 ms, no delay.
-- In script: set `data-warm` on the group when a tooltip opens; remove it 300 ms after the last one closes.
+- First tooltip in a group: 600 ms delay.
+- Skip window: 300 ms. If the next tooltip opens within 300 ms of the last one closing, it opens with no delay.
+- In Radix: `<Tooltip.Provider delayDuration={600} skipDelayDuration={300}>`. A skip of 0 turns the skip off.
+- In plain CSS, set `data-warm` on the group when a tooltip opens. Remove it 300 ms after the last one closes.
 
 ## Reference
 
 ```css
+/* A 0 ms transition still waits for its delay; closing has no delay. */
 .tooltip {
   opacity: 0;
-  transition: opacity 120ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: opacity 0ms;
 }
 
 .trigger:hover .tooltip,
 .trigger:focus-visible .tooltip {
   opacity: 1;
-  transition-duration: 150ms;
   transition-delay: 600ms;
 }
 
 .tooltip-group[data-warm] .trigger:hover .tooltip,
 .tooltip-group[data-warm] .trigger:focus-visible .tooltip {
-  transition-duration: 0ms;
   transition-delay: 0ms;
 }
 ```
 
 ## Reduced motion
 
-Keep the delays: they are timing, not motion. Keep the opacity fade; tooltips do not move or scale.
+Keep the delays: they are timing, not motion. Tooltips do not move or scale, so nothing else changes.

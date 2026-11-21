@@ -12,22 +12,23 @@ Anything that enters and later leaves. The user has already decided to dismiss i
 
 ## Values
 
-- Exit duration = entrance duration × 0.8, same ease-out curve `cubic-bezier(0.23, 1, 0.32, 1)`.
+- Exit duration = entrance duration × 0.8, same ease-out curve `cubic-bezier(0.32, 0.72, 0, 1)`.
 - Tooltip 150 → 120 ms. Menu, popover, icon swap 200 → 160 ms. Dialog, panel, page view 250 → 200 ms.
 - Put the shorter duration on the closed state: a CSS transition takes its timing from the state it moves to.
+- Press feedback is not an exit: it uses the same duration both ways (see "Scale to 0.97 on press").
 
 ## Reference
 
 ```css
 .dialog {
   transition:
-    opacity 250ms cubic-bezier(0.23, 1, 0.32, 1),
-    scale 250ms cubic-bezier(0.23, 1, 0.32, 1);
+    opacity 250ms cubic-bezier(0.32, 0.72, 0, 1),
+    scale 250ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .dialog[data-state="closed"] {
   opacity: 0;
-  scale: 0.95;
+  scale: 0.97;
   transition-duration: 200ms;
 }
 ```

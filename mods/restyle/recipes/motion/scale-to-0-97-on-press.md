@@ -2,28 +2,28 @@
 name: Scale to 0.97 on press
 category: motion
 applies_to: button, toggle
-source: owner
+source: https://www.tiktok.com/@charles.unemployed
 added: 2026-11-18
 ---
 
 ## When
 
-A button, toggle or card is pressed. A small scale-down tells the user the press landed before any result comes back.
+A button, toggle or card is pressed. Shrink it a little while the pointer is down, so the press answers at once, before any result comes back.
 
 ## Values
 
-- Pressed scale: 0.97. Use 0.97 for every pressable element.
-- Duration: 150 ms down and 150 ms back, `cubic-bezier(0.23, 1, 0.32, 1)`.
-- Scale from the centre (`transform-origin: center`).
+- Pressed scale: 0.97.
+- Transition on `scale` only: 150 ms, `ease-out`, the same both ways.
+- Scale from the centre (the default `transform-origin`).
 
 ## Reference
 
 ```css
-.button {
-  transition: scale 150ms cubic-bezier(0.23, 1, 0.32, 1);
+button {
+  transition: scale 150ms ease-out;
 }
 
-.button:active {
+button:active {
   scale: 0.97;
 }
 ```

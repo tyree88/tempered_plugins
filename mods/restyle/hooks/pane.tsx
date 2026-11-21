@@ -23,7 +23,7 @@ export type Handlers = {
   choose: (id: string) => () => void // id: `<category>/<slug>`
 }
 
-const TITLE: Record<Category, string> = { motion: 'Motion', type: 'Type' }
+const TITLE: Record<Category, string> = { motion: 'Motion', type: 'Type', visual: 'Visual', effect: 'Effects (add markup)' }
 
 const cut = (text: string, max: number) => {
   const chars = Array.from(text.replace(/\s+/g, ' ').trim())

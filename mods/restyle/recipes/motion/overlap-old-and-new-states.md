@@ -13,7 +13,7 @@ One state replaces another in the same place: a label changes, an icon swaps, a 
 ## Values
 
 - Both start on the same frame. No delay on the entrance.
-- Old state: 160 ms out. New state: 200 ms in. Both `cubic-bezier(0.23, 1, 0.32, 1)`.
+- Old state: 160 ms out. New state: 200 ms in. Both `cubic-bezier(0.32, 0.72, 0, 1)`.
 - Stack both states in one grid cell so the layout does not jump.
 
 ## Reference
@@ -25,7 +25,7 @@ One state replaces another in the same place: a label changes, an icon swaps, a 
 
 .swap > * {
   grid-area: 1 / 1;
-  transition: opacity 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: opacity 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .swap > [data-state="off"] {

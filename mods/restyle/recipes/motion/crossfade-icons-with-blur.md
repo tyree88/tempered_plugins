@@ -13,7 +13,7 @@ One icon replaces another in the same place: copy becomes check, play becomes pa
 ## Values
 
 - Hidden state: opacity 0, `filter: blur(4px)`, scale 0.9. Shown state: opacity 1, `blur(0)`, scale 1.
-- In 200 ms, out 160 ms, both at once, `cubic-bezier(0.23, 1, 0.32, 1)`.
+- In 200 ms, out 160 ms, both at once, `cubic-bezier(0.32, 0.72, 0, 1)`.
 - Stack both icons in one grid cell.
 
 ## Reference
@@ -26,9 +26,9 @@ One icon replaces another in the same place: copy becomes check, play becomes pa
 .icon-swap > svg {
   grid-area: 1 / 1;
   transition:
-    opacity 200ms cubic-bezier(0.23, 1, 0.32, 1),
-    filter 200ms cubic-bezier(0.23, 1, 0.32, 1),
-    scale 200ms cubic-bezier(0.23, 1, 0.32, 1);
+    opacity 200ms cubic-bezier(0.32, 0.72, 0, 1),
+    filter 200ms cubic-bezier(0.32, 0.72, 0, 1),
+    scale 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .icon-swap > svg[data-state="off"] {

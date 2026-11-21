@@ -12,7 +12,7 @@ A card, dialog or panel enters with secondary content inside: a caption, a meta 
 
 ## Values
 
-- Container: 250 ms, `cubic-bezier(0.23, 1, 0.32, 1)`, opacity 0 → 1, scale 0.95 → 1.
+- Container: 250 ms, `cubic-bezier(0.32, 0.72, 0, 1)`, opacity 0 → 1, scale 0.97 → 1.
 - Details: start 60 ms after the container, then 30 ms between each detail.
 - Each detail: 200 ms, same curve, opacity 0 → 1, translate 4 px → 0 on the y axis.
 
@@ -20,16 +20,16 @@ A card, dialog or panel enters with secondary content inside: a caption, a meta 
 
 ```css
 .card {
-  animation: card-in 250ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation: card-in 250ms cubic-bezier(0.32, 0.72, 0, 1) both;
 }
 
 .card .detail {
-  animation: detail-in 200ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation: detail-in 200ms cubic-bezier(0.32, 0.72, 0, 1) both;
   animation-delay: calc(60ms + var(--i, 0) * 30ms);
 }
 
 @keyframes card-in {
-  from { opacity: 0; scale: 0.95; }
+  from { opacity: 0; scale: 0.97; }
 }
 
 @keyframes detail-in {

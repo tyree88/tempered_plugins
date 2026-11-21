@@ -12,15 +12,15 @@ Menus, dialogs, toasts, toggles and tabs that people use many times a day. Overs
 
 ## Values
 
-- CSS: the ease-out `cubic-bezier(0.23, 1, 0.32, 1)` or the ease-in-out `cubic-bezier(0.77, 0, 0.175, 1)`. Neither has a y value outside 0–1, so neither overshoots.
+- CSS: the ease-out `cubic-bezier(0.32, 0.72, 0, 1)` or the ease-in-out `cubic-bezier(0.77, 0, 0.175, 1)`. Neither has a y value outside 0–1, so neither overshoots.
 - Never use a curve with a y value above 1, for example `cubic-bezier(0.34, 1.56, 0.64, 1)`.
-- Springs: stiffness 400, damping 40, mass 1. This is critically damped (damping ratio 1): it settles with no overshoot.
+- Springs: duration 0.5 s, bounce 0. Bounce 0 settles with no overshoot.
 
 ## Reference
 
 ```css
 .toast {
-  transition: translate 250ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: translate 250ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .toast[data-state="closed"] {

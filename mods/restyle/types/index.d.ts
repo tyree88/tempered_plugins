@@ -27,7 +27,8 @@ export type BridgeLine =
   | { type: 'hello'; url: string }
   | { type: 'pick'; pick: Pick }
 
-export type Category = 'motion' | 'type'
+/** `effect`: a recipe that adds markup, a wrapper or a layer; the others restyle the picked element alone. */
+export type Category = 'motion' | 'type' | 'visual' | 'effect'
 
 /** The words a recipe's `applies_to` may hold, and what match.ts derives from a pick. */
 export type Kind =
@@ -45,6 +46,12 @@ export type Kind =
   | 'heading'
   | 'icon'
   | 'image'
+  | 'nav'
+  | 'slider'
+  | 'progress'
+  | 'card'
+  | 'carousel'
+  | 'background'
 
 /** One recipes/<category>/<slug>.md file, parsed. */
 export type Recipe = {

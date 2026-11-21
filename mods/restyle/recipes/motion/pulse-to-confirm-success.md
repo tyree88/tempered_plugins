@@ -13,7 +13,7 @@ An action finishes well: saved, copied, sent. One soft ring that grows and fades
 ## Values
 
 - Ring: a pseudo-element the size of the control, scale 1 → 1.15, opacity 0.4 → 0.
-- Duration: 400 ms, `cubic-bezier(0.23, 1, 0.32, 1)`, once. Never loop it.
+- Duration: 400 ms, `cubic-bezier(0.32, 0.72, 0, 1)`, once. Never loop it.
 - Ring colour: the success colour. The control itself does not scale, so it does not fight the 0.97 press scale.
 
 ## Reference
@@ -30,7 +30,7 @@ An action finishes well: saved, copied, sent. One soft ring that grows and fades
   border-radius: inherit;
   border: 2px solid currentColor;
   pointer-events: none;
-  animation: success-ring 400ms cubic-bezier(0.23, 1, 0.32, 1) forwards;
+  animation: success-ring 400ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
 }
 
 @keyframes success-ring {

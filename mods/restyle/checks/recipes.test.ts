@@ -72,7 +72,7 @@ test('a category that differs from the folder fails', () => {
 })
 
 test('an unknown applies_to word fails', () => {
-  assert.match(bad(GOOD.replace('button, toggle', 'button, carousel')), /carousel/)
+  assert.match(bad(GOOD.replace('button, toggle', 'button, spaceship')), /spaceship/)
 })
 
 test('a bad date fails', () => {
@@ -95,7 +95,7 @@ test('every file under recipes/ parses', () => {
   const root = join(import.meta.dirname, '..', 'recipes')
   const failures: string[] = []
   let count = 0
-  for (const category of ['motion', 'type']) {
+  for (const category of ['motion', 'type', 'visual', 'effect']) {
     const dir = join(root, category)
     if (!existsSync(dir)) continue // an absent or empty folder is fine
     for (const file of readdirSync(dir)) {

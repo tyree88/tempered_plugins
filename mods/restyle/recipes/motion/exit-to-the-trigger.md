@@ -13,18 +13,18 @@ A popover, menu or tooltip closes. It shrinks back into the trigger it came from
 ## Values
 
 - Keep the entrance `transform-origin` until the exit ends. Do not reset it on close.
-- Scale 1 → 0.95, opacity 1 → 0.
-- 160 ms (tooltip 120 ms), 20% shorter than the entrance, `cubic-bezier(0.23, 1, 0.32, 1)`.
+- Scale 1 → 0.97, opacity 1 → 0.
+- 160 ms (tooltip 120 ms), 20% shorter than the entrance, `cubic-bezier(0.32, 0.72, 0, 1)`.
 
 ## Reference
 
 ```css
 .popover[data-state="closed"] {
   opacity: 0;
-  scale: 0.95;
+  scale: 0.97;
   transition:
-    opacity 160ms cubic-bezier(0.23, 1, 0.32, 1),
-    scale 160ms cubic-bezier(0.23, 1, 0.32, 1);
+    opacity 160ms cubic-bezier(0.32, 0.72, 0, 1),
+    scale 160ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 ```
 

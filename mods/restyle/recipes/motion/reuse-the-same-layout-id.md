@@ -12,7 +12,7 @@ One visual thing moves between two places in the tree: a tab underline goes to t
 
 ## Values
 
-- Spring: stiffness 400, damping 40, mass 1.
+- Spring: duration 0.5 s, bounce 0.
 - CSS equivalent: `view-transition-name: tab-indicator` on the element; `::view-transition-group(tab-indicator)` with `animation-duration: 300ms` and `animation-timing-function: cubic-bezier(0.77, 0, 0.175, 1)`.
 - One `layoutId` (or one `view-transition-name`) may be on the page only once at a time.
 
@@ -31,7 +31,7 @@ export function Tabs({ tabs, active, onSelect }) {
             <motion.span
               layoutId="tab-indicator"
               className="indicator"
-              transition={{ type: "spring", stiffness: 400, damping: 40 }}
+              transition={{ type: "spring", duration: 0.5, bounce: 0 }}
             />
           )}
         </button>

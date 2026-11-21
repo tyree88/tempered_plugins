@@ -13,7 +13,7 @@ The user holds or drags a slider thumb, a sheet or a draggable card. While the p
 ## Values
 
 - While held: `transition: none`. The element position equals the pointer position on every frame.
-- On release: settle to the snap point in 200 ms, `cubic-bezier(0.23, 1, 0.32, 1)`, or with the release velocity in a spring (stiffness 400, damping 40); see "Velocity springs".
+- On release: settle to the snap point in 200 ms, `cubic-bezier(0.32, 0.72, 0, 1)`, or with the release velocity in a spring (duration 0.5, bounce 0); see "Velocity springs".
 - Set `data-dragging` on pointerdown; remove it on pointerup and pointercancel.
 
 ## Reference
@@ -21,7 +21,7 @@ The user holds or drags a slider thumb, a sheet or a draggable card. While the p
 ```css
 .thumb {
   translate: var(--x, 0px) 0;
-  transition: translate 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: translate 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .slider[data-dragging] .thumb {

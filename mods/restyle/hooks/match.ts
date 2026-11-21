@@ -24,6 +24,13 @@ const BY_TAG: Record<string, Kind[]> = {
   picture: ['image'],
   video: ['image'],
   canvas: ['image'],
+  nav: ['nav'],
+  progress: ['progress'],
+  meter: ['progress'],
+  article: ['card'],
+  body: ['background'],
+  main: ['background'],
+  section: ['background'],
 }
 
 const BY_ROLE: Record<string, Kind[]> = {
@@ -46,6 +53,11 @@ const BY_ROLE: Record<string, Kind[]> = {
   listitem: ['list'],
   heading: ['heading'],
   img: ['image'],
+  navigation: ['nav'],
+  tablist: ['nav'],
+  tab: ['nav'],
+  slider: ['slider'],
+  progressbar: ['progress'],
 }
 
 /** The kinds a pick is, most specific first; `text` when it shows text; always ends with `any`. */
@@ -94,11 +106,14 @@ export function parseLine(line: string): BridgeLine | undefined {
   }
 }
 
+// Details first, effects last: an effect changes the markup, so it is the bigger step.
+const ORDER = ['motion', 'type', 'visual', 'effect']
+
 /** Matches first (own kind over `any`), then by category, then by name. */
 export function rank(recipes: readonly Recipe[], pick: Pick | undefined): Recipe[] {
   const kinds = pick ? kindsOf(pick) : []
   return recipes
     .map(recipe => ({ recipe, s: score(recipe, kinds) }))
-    .sort((a, b) => b.s - a.s || a.recipe.category.localeCompare(b.recipe.category) || a.recipe.name.localeCompare(b.recipe.name))
+    .sort((a, b) => b.s - a.s || ORDER.indexOf(a.recipe.category) - ORDER.indexOf(b.recipe.category) || a.recipe.name.localeCompare(b.recipe.name))
     .map(x => x.recipe)
 }

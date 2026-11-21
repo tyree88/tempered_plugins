@@ -2,19 +2,19 @@
 name: Velocity springs
 category: motion
 applies_to: modal, toggle, list
-source: owner
+source: https://www.tiktok.com/@charles.unemployed
 added: 2026-11-18
 ---
 
 ## When
 
-The user flicks or releases a dragged sheet, card or carousel. The settle animation must start at the speed the hand left it, not from 0. A fixed-duration tween from rest makes the element stop, then start again.
+The user flicks or releases a dragged sheet, card or player panel. A fixed tween (for example 300 ms `easeInOut`) ignores how fast the hand moved, so the release feels mechanical. Settle with a spring that starts at the speed of the drag.
 
 ## Values
 
-- Spring: stiffness 400, damping 40, mass 1 (no overshoot), with `velocity` = the release velocity in px/s.
-- Dismiss when the release velocity is over 500 px/s or the drag distance is over 120 px; else return to 0.
-- Turn off Motion's own momentum (`dragMomentum={false}`), so only this spring runs.
+- Spring: `duration: 0.5` (seconds), `bounce: 0`.
+- `velocity`: the current velocity of the dragged value (`y.getVelocity()`).
+- Not this: `{ duration: 0.3, ease: "easeInOut" }`.
 
 ## Reference
 
@@ -29,13 +29,12 @@ export function Sheet({ children }) {
       drag="y"
       dragMomentum={false}
       style={{ y }}
-      onDragEnd={(event, info) => {
-        const dismiss = info.velocity.y > 500 || info.offset.y > 120
-        animate(y, dismiss ? 400 : 0, {
+      onDragEnd={() => {
+        animate(y, 0, {
           type: "spring",
-          stiffness: 400,
-          damping: 40,
-          velocity: info.velocity.y,
+          duration: 0.5,
+          bounce: 0,
+          velocity: y.getVelocity(),
         })
       }}
     >
@@ -47,4 +46,4 @@ export function Sheet({ children }) {
 
 ## Reduced motion
 
-Keep the drag: the user drives it. On release, set the end position with no spring (`y.set(dismiss ? 400 : 0)`), and fade a dismissed sheet out over 200 ms.
+Keep the drag: the user drives it. On release, set the end position with no spring (`y.set(0)`).

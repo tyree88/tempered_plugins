@@ -3,10 +3,11 @@ import type { Category, Kind, Recipe } from '../types/index.d.ts'
 
 export type ParseResult = { ok: true; recipe: Recipe } | { ok: false; slug: string; reason: string }
 
-const CATEGORIES: readonly string[] = ['motion', 'type']
+const CATEGORIES: readonly string[] = ['motion', 'type', 'visual', 'effect']
 const KINDS: readonly string[] = [
   'any', 'button', 'link', 'input', 'toggle', 'popover', 'menu',
   'tooltip', 'modal', 'list', 'text', 'heading', 'icon', 'image',
+  'nav', 'slider', 'progress', 'card', 'carousel', 'background',
 ]
 const KEYS = ['name', 'category', 'applies_to', 'source', 'added'] as const
 const HEADINGS = ['## When', '## Values', '## Reference', '## Reduced motion']

@@ -84,3 +84,12 @@ Outside marketplaces (for example 21st.dev). Reading the project's design tokens
 - Source `file:line` depends on the framework's dev build. React first.
 - The picker tag must not reach production. The install prompt requires the development-only check.
 - Scout quality. The pull request gate and the limit of 5 keep the catalog small and reviewed.
+
+## Changes in 0.2.0
+
+1. Recipe categories are four: `motion`, `type`, `visual`, `effect`. The folders are `recipes/motion/`, `recipes/type/`, `recipes/visual/`, `recipes/effect/`.
+2. `motion`, `type` and `visual` restyle the picked element alone. `effect` adds markup, a wrapper, a pseudo-element layer or an SVG filter. The pane lists effects last, under "Effects (add markup)".
+3. The `applies_to` words are: `any`, `button`, `link`, `input`, `toggle`, `popover`, `menu`, `tooltip`, `modal`, `list`, `text`, `heading`, `icon`, `image`, `nav`, `slider`, `progress`, `card`, `carousel`, `background`.
+4. A second skill ships in the mod: `skills/restyle-rules/SKILL.md`. It holds the design rules Claude follows on every interface task: six principles, the shared values, rules about people (Fitts, Hick, Miller, Jakob, Postel, Doherty), and signs of generic machine-made UI to avoid.
+5. The shared values of the catalog, which a new recipe keeps: ease-out `cubic-bezier(0.32, 0.72, 0, 1)`; ease-in-out `cubic-bezier(0.77, 0, 0.175, 1)`; press scale 0.97 for 150 ms both ways; overlays start at scale 0.97; exits 20% shorter than entrances (press is the exception); spring `duration: 0.5`, `bounce: 0`; no bounce on everyday UI.
+6. The bridge reuses its saved port and token between sessions, so the script tag in a dev layout keeps working. A busy port falls back to a free one, and the pane shows the new tag.

@@ -2,37 +2,38 @@
 name: Shake on error
 category: motion
 applies_to: input, button
-source: owner
+source: https://www.tiktok.com/@charles.unemployed
 added: 2026-11-18
 ---
 
 ## When
 
-The user submits a field or form that is wrong: a bad password, a code that does not match. A short sideways shake says "no" at the place they are looking. Always pair it with an error message.
+The user submits a wrong value, such as a bad password. A red border alone is easy to miss. Add a short sideways shake on the field as well, so the failure is plain at the place they are looking.
 
 ## Values
 
-- Offsets on the x axis: 0, −6, 6, −4, 4, −2, 0 px.
-- Duration: 300 ms, `cubic-bezier(0.77, 0, 0.175, 1)` between each step. Once, never looped.
-- Restart it on each failed submit by removing and adding the class.
+- Keep the error style (the `error` class). Add the shake on top of it.
+- Offsets on the x axis, in px: 0, −10, 10, −6, 6, −3, 0. Each swing is smaller than the last.
+- Duration: 360 ms, once, never looped. Restart it on each failed submit.
+- The video sets no curve; the steps below are evenly spaced.
 
 ## Reference
 
 ```css
-.field.has-error {
-  animation: shake 300ms cubic-bezier(0.77, 0, 0.175, 1);
+.field.error {
+  animation: shake 360ms;
 }
 
 @keyframes shake {
-  0%, 100% { translate: 0 0; }
-  16% { translate: -6px 0; }
-  33% { translate: 6px 0; }
-  50% { translate: -4px 0; }
-  66% { translate: 4px 0; }
-  83% { translate: -2px 0; }
+  0%, 100% { translate: 0; }
+  16.7% { translate: -10px; }
+  33.3% { translate: 10px; }
+  50% { translate: -6px; }
+  66.7% { translate: 6px; }
+  83.3% { translate: -3px; }
 }
 ```
 
 ## Reduced motion
 
-No shake. Show the error colour on the border and the error message only.
+No shake. Keep the error border colour and the error message.

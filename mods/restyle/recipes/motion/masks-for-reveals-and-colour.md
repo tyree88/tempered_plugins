@@ -14,14 +14,14 @@ An image or heading is revealed, or a control changes fill colour. Wipe it in wi
 
 - Reveal: `clip-path: inset(0 100% 0 0)` → `inset(0 0 0 0)`, left to right.
 - Colour change: a fill layer with `clip-path: circle(0% at 50% 50%)` → `circle(75% at 50% 50%)`. 75% covers the corners of the box.
-- In 250 ms, out 200 ms, `cubic-bezier(0.23, 1, 0.32, 1)`.
+- In 250 ms, out 200 ms, `cubic-bezier(0.32, 0.72, 0, 1)`.
 
 ## Reference
 
 ```css
 .reveal {
   clip-path: inset(0 100% 0 0);
-  transition: clip-path 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: clip-path 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .reveal.is-visible {
@@ -31,7 +31,7 @@ An image or heading is revealed, or a control changes fill colour. Wipe it in wi
 
 .button .fill {
   clip-path: circle(0% at 50% 50%);
-  transition: clip-path 200ms cubic-bezier(0.23, 1, 0.32, 1);
+  transition: clip-path 200ms cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .button[aria-pressed="true"] .fill {

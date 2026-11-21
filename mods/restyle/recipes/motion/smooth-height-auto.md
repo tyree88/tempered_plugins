@@ -2,57 +2,35 @@
 name: Smooth height auto
 category: motion
 applies_to: list, text
-source: owner
+source: https://www.tiktok.com/@charles.unemployed
 added: 2026-11-18
 ---
 
 ## When
 
-An accordion, a "show more" block or a details panel opens to its natural height. Browsers do not animate to `height: auto` by default; tell them to, and fall back to a grid row from `0fr` to `1fr` where they cannot.
+An accordion, a "show more" block or a details panel opens to its natural height. By default the browser cannot animate to `height: auto`, so the panel jumps open. Set `interpolate-size: allow-keywords` and the same height transition animates.
 
 ## Values
 
-- `interpolate-size: allow-keywords` on `:root`, then a plain `height` transition from 0 to `auto`.
-- Fallback: `grid-template-rows: 0fr` → `1fr`; the child needs `min-height: 0` and `overflow: hidden`.
-- Open 250 ms, close 200 ms, `cubic-bezier(0.23, 1, 0.32, 1)`.
+- `interpolate-size: allow-keywords` on `:root` (the default is `numeric-only`).
+- Closed: `height: 0; overflow: clip`. Open: `height: auto`.
+- Transition on `height`: 250 ms, `cubic-bezier(0.77, 0, 0.175, 1)`, the same both ways.
+- Where `interpolate-size` is not supported the panel still opens, without the animation.
 
 ## Reference
 
 ```css
-@supports (interpolate-size: allow-keywords) {
-  :root { interpolate-size: allow-keywords; }
+:root { interpolate-size: allow-keywords; }
 
-  .panel {
-    height: 0;
-    overflow: hidden;
-    transition: height 200ms cubic-bezier(0.23, 1, 0.32, 1);
-  }
-
-  .panel.is-open {
-    height: auto;
-    transition-duration: 250ms;
-  }
+.answer {
+  height: 0;
+  overflow: clip;
+  transition: height 250ms cubic-bezier(0.77, 0, 0.175, 1);
 }
 
-@supports not (interpolate-size: allow-keywords) {
-  .panel {
-    display: grid;
-    grid-template-rows: 0fr;
-    transition: grid-template-rows 200ms cubic-bezier(0.23, 1, 0.32, 1);
-  }
-
-  .panel.is-open {
-    grid-template-rows: 1fr;
-    transition-duration: 250ms;
-  }
-
-  .panel > .panel-inner {
-    min-height: 0;
-    overflow: hidden;
-  }
-}
+.open .answer { height: auto; }
 ```
 
 ## Reduced motion
 
-Open and close without a height transition (`transition: none`). Fade the content in over 250 ms if it needs a cue.
+Open and close without a height transition (`transition: none`).

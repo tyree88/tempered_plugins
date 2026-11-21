@@ -13,14 +13,14 @@ A list, menu or grid of results appears at once. A small delay per row lets the 
 ## Values
 
 - Delay: 30 ms per row. Stop adding delay after row 10 (300 ms), so long lists do not drag.
-- Each row: 200 ms, `cubic-bezier(0.23, 1, 0.32, 1)`, opacity 0 → 1, translate 8 px → 0 on the y axis.
+- Each row: 200 ms, `cubic-bezier(0.32, 0.72, 0, 1)`, opacity 0 → 1, translate 8 px → 0 on the y axis.
 - Set `--i` to the row index (0, 1, 2 …) on each row.
 
 ## Reference
 
 ```css
 .row {
-  animation: row-in 200ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation: row-in 200ms cubic-bezier(0.32, 0.72, 0, 1) both;
   animation-delay: calc(min(var(--i, 0), 10) * 30ms);
 }
 

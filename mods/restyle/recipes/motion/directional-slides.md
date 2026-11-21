@@ -2,43 +2,36 @@
 name: Directional slides
 category: motion
 applies_to: any
-source: owner
+source: https://www.tiktok.com/@charles.unemployed
 added: 2026-11-18
 ---
 
 ## When
 
-The user steps between views in an order: wizard steps, carousel pages, month to month in a calendar. Forward slides in from the right, back slides in from the left, so the motion matches where they are in the sequence.
+The user steps between views in an order: stepper or wizard steps, carousel pages. A crossfade hides which way they moved. Slide the views instead: on Next, the new step comes in from the right and the old one leaves to the left; on Back, the reverse.
 
 ## Values
 
-- Distance: 24 px, with opacity 0 → 1. The full width is too much for a view change.
-- `--dir: 1` going forward, `--dir: -1` going back.
-- Enter 250 ms, leave 200 ms, `cubic-bezier(0.23, 1, 0.32, 1)`. Both views run at the same time.
+- Distance: the full width of the view (`translate: 100%` and `-100%`). Clip the container so the off-screen step does not show.
+- Transition on `translate` only: 350 ms, `cubic-bezier(0.77, 0, 0.175, 1)`, the same for the step that enters and the step that leaves.
+- Next: entering step starts at 100%, leaving step ends at −100%. Back: entering step starts at −100%, leaving step ends at 100%.
 
 ## Reference
 
 ```css
-.view { --dir: 1; }
-.view[data-direction="back"] { --dir: -1; }
+.steps { overflow: clip; }
 
-.view.entering {
-  animation: slide-in 250ms cubic-bezier(0.23, 1, 0.32, 1) both;
+.step {
+  transition: translate 350ms cubic-bezier(0.77, 0, 0.175, 1);
 }
 
-.view.leaving {
-  animation: slide-out 200ms cubic-bezier(0.23, 1, 0.32, 1) both;
-}
+.next .enter,
+.back .exit { translate: 100%; }
 
-@keyframes slide-in {
-  from { opacity: 0; translate: calc(var(--dir) * 24px) 0; }
-}
-
-@keyframes slide-out {
-  to { opacity: 0; translate: calc(var(--dir) * -24px) 0; }
-}
+.next .exit,
+.back .enter { translate: -100%; }
 ```
 
 ## Reduced motion
 
-Remove the translate. Crossfade the views: 250 ms in, 200 ms out.
+Remove the translate. Crossfade the steps with opacity over 350 ms.

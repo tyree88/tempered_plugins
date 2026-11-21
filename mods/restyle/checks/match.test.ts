@@ -13,7 +13,7 @@ const pickOf = (tag: string, extra: Partial<Pick> = {}): Pick => ({
   ...extra,
 })
 
-const recipe = (slug: string, category: 'motion' | 'type', appliesTo: Kind[], name = slug): Recipe => ({
+const recipe = (slug: string, category: Recipe['category'], appliesTo: Kind[], name = slug): Recipe => ({
   slug,
   name,
   category,
@@ -58,6 +58,14 @@ test('rank: with no pick, by category then name', () => {
   assert.deepEqual(
     rank(all, undefined).map(r => r.slug),
     ['a', 'z', 'b'],
+  )
+})
+
+test('rank: effects come after the single-element categories', () => {
+  const all = [recipe('glow', 'effect', ['any'], 'A glow'), recipe('edge', 'visual', ['any'], 'Z edge'), recipe('ease', 'motion', ['any'], 'M ease')]
+  assert.deepEqual(
+    rank(all, pickOf('div')).map(r => r.slug),
+    ['ease', 'edge', 'glow'],
   )
 })
 

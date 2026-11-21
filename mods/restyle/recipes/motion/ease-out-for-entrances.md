@@ -12,7 +12,7 @@ An element appears on screen: a menu, popover, tooltip, toast or dialog. It must
 
 ## Values
 
-- Curve: `cubic-bezier(0.23, 1, 0.32, 1)`. Use this one ease-out curve for every entrance and exit.
+- Curve: `cubic-bezier(0.32, 0.72, 0, 1)`. It has no y value outside 0–1, so it never overshoots. Use this one ease-out curve for every entrance and exit.
 - Entrance durations: tooltip 150 ms; menu, popover, icon swap 200 ms; dialog, panel, page view 250 ms.
 - Never use `ease-in` for an entrance: it starts slow and feels late.
 
@@ -20,7 +20,7 @@ An element appears on screen: a menu, popover, tooltip, toast or dialog. It must
 
 ```css
 :root {
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-out: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
 }
 

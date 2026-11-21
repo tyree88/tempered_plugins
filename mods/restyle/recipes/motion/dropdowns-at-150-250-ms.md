@@ -12,8 +12,8 @@ A dropdown, select list or context menu opens and closes many times a day. Keep 
 
 ## Values
 
-- Open: 200 ms, `cubic-bezier(0.23, 1, 0.32, 1)`, opacity 0 → 1, scale 0.95 → 1.
-- Close: 160 ms (20% shorter), same curve, back to opacity 0 and scale 0.95.
+- Open: 200 ms, `cubic-bezier(0.32, 0.72, 0, 1)`, opacity 0 → 1, scale 0.97 → 1.
+- Close: 160 ms (20% shorter), same curve, back to opacity 0 and scale 0.97.
 - `transform-origin` at the trigger.
 
 ## Reference
@@ -22,22 +22,22 @@ A dropdown, select list or context menu opens and closes many times a day. Keep 
 .menu {
   transform-origin: top left;
   transition:
-    opacity 200ms cubic-bezier(0.23, 1, 0.32, 1),
-    scale 200ms cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 200ms cubic-bezier(0.32, 0.72, 0, 1),
+    scale 200ms cubic-bezier(0.32, 0.72, 0, 1),
     display 200ms allow-discrete,
     overlay 200ms allow-discrete;
 }
 
 .menu:not(:popover-open) {
   opacity: 0;
-  scale: 0.95;
+  scale: 0.97;
   transition-duration: 160ms;
 }
 
 @starting-style {
   .menu:popover-open {
     opacity: 0;
-    scale: 0.95;
+    scale: 0.97;
   }
 }
 ```
