@@ -16,7 +16,7 @@ All paths are relative to the mod folder: the folder that holds `.claude-plugin/
 | `recipes/motion/*.md`, `recipes/type/*.md`, `recipes/visual/*.md`, `recipes/effect/*.md` | The existing recipes. |
 | `inbox/` | Screenshots, links and notes that the owner dropped during the week. `inbox/README.md` is not a candidate. |
 | `inbox/done/` | Inbox files that a scout run handled. Do not read them again. |
-| `checks/recipes.test.ts` | The recipe parser test. It parses every file under `recipes/`. |
+| `checks/recipes.check.ts` | The recipe parser test. It parses every file under `recipes/`. |
 
 ## Rules
 
@@ -100,7 +100,7 @@ Format rules:
 
 Then check the files:
 
-1. Run `node --test checks/recipes.test.ts` from the mod folder. Fix each file that fails. If you cannot fix a file, delete it and note the cause in the pull request.
+1. Run `node --test checks/recipes.check.ts` from the mod folder. Fix each file that fails. If you cannot fix a file, delete it and note the cause in the pull request.
 2. Check each `Reference` snippet in a headless browser:
    - Use a browser tool that this session already has, for example a Playwright browser tool. If there is none, use a Chrome or Chromium binary that is already on the machine, with `--headless`. Do not install a browser.
    - Write a small HTML page in a temporary folder outside the repository. Put the snippet in it: CSS in a `<style>` element, applied to one element of a matching kind (for example a `<button>` for a button recipe). For a Motion snippet, check that it is valid JSX by reading it, and say in the pull request that it did not run.

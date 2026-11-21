@@ -350,6 +350,8 @@ To run the behavior test of followups, run `claude plugin test followups`. It ru
 
 To run the behavior test of lessons, run `claude plugin test lessons`. It runs 9 cases.
 
+To run the behavior test of restyle, run `claude plugin test restyle`. It runs 8 cases on the terminal and desktop surfaces. Its other checks are Node tests: `node --test checks/*.check.ts bridge/*.test.mjs` from `mods/restyle`.
+
 To run the behavior test of code-tracer, run `claude plugin test code-tracer`. It runs 3 cases on the terminal and desktop surfaces.
 
 To run the behavior test of focus-group, run `claude plugin test focus-group`. It runs 3 cases. The pane cases run on the terminal, desktop and mobile surfaces.

@@ -53,7 +53,7 @@ Without a pick, the recipes show but you cannot choose one. Without a source loc
    ```
 
 3. Fill all five keys. `applies_to` is a comma list of these words: `any`, `button`, `link`, `input`, `toggle`, `popover`, `menu`, `tooltip`, `modal`, `list`, `text`, `heading`, `icon`, `image`, `nav`, `slider`, `progress`, `card`, `carousel`, `background`. For an effect, the first bullet under `## Values` says what markup or layer the recipe adds. `source` is a URL or `owner`. `added` is `YYYY-MM-DD`.
-4. Run `node --test checks/recipes.test.ts`. It parses every recipe file.
+4. Run `node --test checks/recipes.check.ts`. It parses every recipe file.
 
 A file that fails the parser does not show in the pane. The pane footer counts these files.
 
