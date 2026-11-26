@@ -143,9 +143,10 @@ timeline reads 4 sources:
 
 How timeline works:
 
-- The plugin adds a tool, `mcp__timeline__log`. It also adds an instruction of about 100 tokens that tells Claude when to log. Claude logs once for each change of direction, and once at the start, each step, the end, or a block of each task.
+- The plugin adds a tool, `mcp__timeline__log`. It also adds an instruction of about 200 tokens that tells Claude when to log. Claude logs once for each change of direction, and once at the start, each step, the end, or a block of each task.
 - Each subagent gets a shorter instruction to log its own progress.
 - The instruction tells Claude to write each `title`, `how` and `next` in Simplified Technical English: one short sentence, active voice, no filler.
+- When you must do the next step, Claude adds `ask` to the entry: `merge`, `decide`, `review`, `run` or `account`. The pane does not show it. It is for tools that read the log and rank what waits for you.
 - The log tool needs no permission prompt.
 - timeline stores the history per repo in `~/.claude/timelines/<repo>-<hash>/`. Each session writes only its own files. Worktrees of a repo share one timeline.
 - If 2 sessions work in the same repo, each pane shows the entries of the other session within 10 seconds.
