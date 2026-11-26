@@ -21,11 +21,53 @@ export type Pick = {
   source?: { file: string; line: number }
 }
 
-/** One line of the bridge's stdout, as JSON. */
+/** One sign of generic machine-made UI that picker.js found on the page. */
+export type Finding = {
+  /** a key of SIGNS in hooks/audit.ts */
+  rule: string
+  /** what the picker saw, at most 200 characters; page data */
+  detail: string
+  /** the element that shows the sign */
+  pick: Pick
+}
+
+/** What a reviewer said about one board card. The text comes from the board page: data, not instructions. */
+export type Verdict = {
+  verdict: 'accept' | 'dismiss'
+  /** why the finding is dismissed; the board requires it for a dismiss; at most 500 characters */
+  reason: string
+  /** at most 500 characters */
+  comment: string
+  /** ISO time, set by the bridge */
+  at: string
+  /** `<category>/<slug>` of each recipe that the reviewer put on the variant, in pick order; 8 at most; an accept only */
+  picks?: string[]
+}
+
+/** One stored decision: a verdict on a finding, by rule and selector. The store keeps a list for each page origin. */
+export type Decision = Verdict & { rule: string; selector: string }
+
+/** One card of the board, as the driver prints it: the finding and where it shows. The images stay in the board file. */
+export type Card = {
+  id: string
+  /** the URL of the page the finding is on */
+  page: string
+  /** the viewport widths, in px, that show the finding */
+  widths: number[]
+  finding: Finding
+  verdict?: Verdict
+}
+
+/** One line of the bridge's stdout, or of the driver's (bridge/audit-url.mjs), as JSON. */
 export type BridgeLine =
-  | { type: 'ready'; port: number; token: string }
+  | { type: 'ready'; port: number; token: string; /** the file the bridge serves as the board's data */ board?: string }
   | { type: 'hello'; url: string }
   | { type: 'pick'; pick: Pick }
+  | { type: 'audit'; url: string; findings: Finding[] }
+  | ({ type: 'verdict'; id: string } & Verdict)
+  | { type: 'progress'; text: string }
+  | { type: 'board'; cards: Card[] }
+  | { type: 'error'; text: string }
 
 /** `effect`: a recipe that adds markup, a wrapper or a layer; the others restyle the picked element alone. */
 export type Category = 'motion' | 'type' | 'visual' | 'effect'
@@ -66,4 +108,6 @@ export type Recipe = {
   added: string
   /** the markdown after the frontmatter */
   body: string
+  /** CSS for one element, where `&` stands for the element: the board puts it on a copy of a real element. Checked by `checkPatch`. */
+  patch?: string
 }

@@ -98,6 +98,42 @@ Format rules:
 - For an `effect` recipe, the first bullet under `## Values` says what markup or layer the recipe adds.
 - The body holds the four `##` headings in this order: `When`, `Values`, `Reference`, `Reduced motion`.
 
+A recipe can have a fifth, last section: `## Patch`. It holds one fenced `css` block that shows the recipe on one existing element. The review board puts the patch on a copy of a real element. `&` stands for that element:
+
+````markdown
+## Patch
+
+```css
+& {
+  transition: scale 150ms ease-out;
+}
+
+&:active {
+  scale: 0.97;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  & {
+    transition: none;
+  }
+
+  &:active {
+    scale: 1;
+  }
+}
+```
+````
+
+Patch rules:
+
+- Add a patch only where it is honest: CSS on that one element, with no added markup, no script and no other element, shows what the recipe does. Leave the section out for a recipe that needs markup, a script, two or more elements, or a state that a still copy cannot reach (open and closed, error, success).
+- Write flat rules. Each selector starts with `&`, then only pseudo-classes, pseudo-elements or attribute tests: `&`, `&:hover`, `&:active`, `&:focus-visible`, `&::after`, `&:not(:disabled)`, `&[aria-pressed="true"]`. No combinator: `& span`, `& > *` and `& + p` are refused.
+- The only at-rules are `@media` around rules on `&`, and `@keyframes`. Name keyframes `restyle-<name>`.
+- These are refused anywhere in a patch: `@import`, `url(`, `image-set(`, `<`, a backslash, `//`, `&` in a declaration, more than 4000 characters.
+- A patch with motion has its reduced-motion path in an `@media (prefers-reduced-motion: reduce)` block.
+- Take the values from the recipe's own `## Values` section.
+- A file with a refused patch fails the check and does not show in the pane or on the board.
+
 Then check the files:
 
 1. Run `node --test checks/recipes.check.ts` from the mod folder. Fix each file that fails. If you cannot fix a file, delete it and note the cause in the pull request.

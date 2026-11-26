@@ -1,4 +1,4 @@
-import type { BridgeLine, Kind, Pick, Recipe } from '../types/index.d.ts'
+import type { BridgeLine, Card, Finding, Kind, Pick, Recipe } from '../types/index.d.ts'
 
 const BY_TAG: Record<string, Kind[]> = {
   button: ['button'],
@@ -60,10 +60,15 @@ const BY_ROLE: Record<string, Kind[]> = {
   progressbar: ['progress'],
 }
 
-/** The kinds a pick is, most specific first; `text` when it shows text; always ends with `any`. */
+/**
+ * The kinds a pick is, most specific first; always ends with `any`.
+ * `text` is for an element that is running text: it shows text and has no role of its own (a paragraph, a span).
+ * A button with a label is a button, and a heading is a heading: a recipe for running text (hyphenation, small
+ * caps, link underlines) does not fit them unless it names them too.
+ */
 export function kindsOf(pick: Pick): Kind[] {
   const out = [...(BY_TAG[pick.tag.toLowerCase()] ?? []), ...(pick.role ? (BY_ROLE[pick.role.toLowerCase()] ?? []) : [])]
-  if (pick.text.trim()) out.push('text')
+  if (pick.text.trim() && out.length === 0) out.push('text')
   return [...new Set<Kind>([...out.filter(k => k !== 'any'), 'any'])]
 }
 
@@ -83,26 +88,79 @@ export function parseLine(line: string): BridgeLine | undefined {
   }
   if (!raw || typeof raw !== 'object') return undefined
   const m = raw as Record<string, unknown>
-  if (m.type === 'ready' && typeof m.port === 'number' && typeof m.token === 'string') return { type: 'ready', port: m.port, token: m.token }
+  if (m.type === 'ready' && typeof m.port === 'number' && typeof m.token === 'string') {
+    return { type: 'ready', port: m.port, token: m.token, ...(typeof m.board === 'string' && m.board ? { board: m.board } : {}) }
+  }
   if (m.type === 'hello' && typeof m.url === 'string') return { type: 'hello', url: m.url }
-  const p = m.type === 'pick' && m.pick && typeof m.pick === 'object' ? (m.pick as Record<string, unknown>) : undefined
+  if (m.type === 'audit' && typeof m.url === 'string' && Array.isArray(m.findings)) {
+    const findings: Finding[] = []
+    for (const raw of m.findings as unknown[]) {
+      const f = findingOf(raw)
+      if (f) findings.push(f)
+    }
+    return { type: 'audit', url: m.url, findings }
+  }
+  // The board's verdict: the text in it is what a person typed on a web page.
+  if (m.type === 'verdict' && typeof m.id === 'string' && (m.verdict === 'accept' || m.verdict === 'dismiss')) {
+    const picks = m.verdict === 'accept' && Array.isArray(m.picks) ? (m.picks as unknown[]).filter((p): p is string => typeof p === 'string' && /^[a-z]+\/[a-z0-9-]+$/.test(p)).slice(0, 8) : []
+    return { type: 'verdict', id: m.id.slice(0, 64), verdict: m.verdict, reason: cut(m.reason, 500), comment: cut(m.comment, 500), at: cut(m.at, 40), ...(picks.length ? { picks } : {}) }
+  }
+  // The driver's lines (bridge/audit-url.mjs).
+  if ((m.type === 'progress' || m.type === 'error') && typeof m.text === 'string') return { type: m.type, text: m.text.slice(0, 300) }
+  if (m.type === 'board' && Array.isArray(m.cards)) {
+    const cards: Card[] = []
+    for (const raw of m.cards as unknown[]) {
+      const c = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+      const finding = findingOf(c.finding)
+      if (!finding || typeof c.id !== 'string') continue
+      cards.push({ id: c.id.slice(0, 64), page: cut(c.page, 2000), widths: Array.isArray(c.widths) ? c.widths.filter((w): w is number => typeof w === 'number') : [], finding })
+    }
+    return { type: 'board', cards }
+  }
+  const pick = m.type === 'pick' ? pickOf(m.pick) : undefined
+  return pick ? { type: 'pick', pick } : undefined
+}
+
+const cut = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '')
+
+function findingOf(raw: unknown): Finding | undefined {
+  const f = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const pick = pickOf(f.pick)
+  return pick && typeof f.rule === 'string' ? { rule: f.rule, detail: cut(f.detail, 200), pick } : undefined
+}
+
+function pickOf(raw: unknown): Pick | undefined {
+  const p = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : undefined
   if (!p || typeof p.tag !== 'string' || typeof p.selector !== 'string') return undefined
   const size = p.size && typeof p.size === 'object' ? (p.size as Record<string, unknown>) : {}
   const styles = p.styles && typeof p.styles === 'object' ? Object.entries(p.styles).filter((x): x is [string, string] => typeof x[1] === 'string') : []
   const src = p.source && typeof p.source === 'object' ? (p.source as Record<string, unknown>) : undefined
   return {
-    type: 'pick',
-    pick: {
-      url: typeof p.url === 'string' ? p.url : '',
-      tag: p.tag,
-      selector: p.selector,
-      text: typeof p.text === 'string' ? p.text.slice(0, 200) : '',
-      ...(typeof p.role === 'string' ? { role: p.role } : {}),
-      size: { width: Number(size.width) || 0, height: Number(size.height) || 0 },
-      styles: Object.fromEntries(styles),
-      ...(typeof p.component === 'string' ? { component: p.component } : {}),
-      ...(src && typeof src.file === 'string' && typeof src.line === 'number' ? { source: { file: src.file, line: src.line } } : {}),
-    },
+    url: typeof p.url === 'string' ? p.url : '',
+    tag: p.tag,
+    selector: p.selector,
+    text: typeof p.text === 'string' ? p.text.slice(0, 200) : '',
+    ...(typeof p.role === 'string' ? { role: p.role } : {}),
+    size: { width: Number(size.width) || 0, height: Number(size.height) || 0 },
+    styles: Object.fromEntries(styles),
+    ...(typeof p.component === 'string' ? { component: p.component } : {}),
+    ...(src && typeof src.file === 'string' && typeof src.line === 'number' ? { source: { file: src.file, line: src.line } } : {}),
+  }
+}
+
+/**
+ * The shelf of a board card: the recipes that fit the element, in rank order.
+ * `fit`: those with a patch, which the board can show on a copy of the element (12 at most).
+ * `more`: those of the element's own kind with no patch, because they add markup or need a script (6 at most).
+ * `fixId` is the `<category>/<slug>` of the recipe that fixes the card's finding: it comes first, fit or not.
+ */
+export function shelf(recipes: readonly Recipe[], pick: Pick, fixId?: string): { fit: Recipe[]; more: Recipe[] } {
+  const kinds = kindsOf(pick)
+  const isFix = (r: Recipe) => fixId !== undefined && `${r.category}/${r.slug}` === fixId
+  const ranked = rank(recipes, pick).sort((a, b) => Number(isFix(b)) - Number(isFix(a))) // a stable sort: the rest keep their rank
+  return {
+    fit: ranked.filter(r => r.patch !== undefined && (score(r, kinds) > 0 || isFix(r))).slice(0, 12),
+    more: ranked.filter(r => r.patch === undefined && (score(r, kinds) === 2 || isFix(r))).slice(0, 6),
   }
 }
 

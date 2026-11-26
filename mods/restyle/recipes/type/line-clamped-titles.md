@@ -34,3 +34,17 @@ Card or list titles of different lengths make cards different heights, or a long
 ## Reduced motion
 
 Not affected.
+
+## Patch
+
+```css
+& {
+  line-height: 1.3;
+  min-height: calc(2 * 1.3em);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+```

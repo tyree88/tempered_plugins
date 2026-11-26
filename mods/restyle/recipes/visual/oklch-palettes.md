@@ -32,3 +32,14 @@ A set of hues (tags, categories, chart series, avatars) should look equally brig
 ## Reduced motion
 
 Not affected.
+
+## Patch
+
+```css
+& {
+  --l: 76%;
+  --c: 0.14;
+  --h: 25;
+  background: oklch(var(--l) var(--c) var(--h));
+}
+```

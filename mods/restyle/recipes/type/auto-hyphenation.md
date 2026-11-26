@@ -37,3 +37,13 @@ Justified or narrow text (cards, sidebars, mobile columns) shows large gaps betw
 ## Reduced motion
 
 Not affected.
+
+## Patch
+
+```css
+& {
+  hyphens: auto;
+  -webkit-hyphens: auto;
+  hyphenate-limit-chars: 6 3 2;
+}
+```

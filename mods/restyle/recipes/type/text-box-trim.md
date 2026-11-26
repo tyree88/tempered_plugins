@@ -37,3 +37,12 @@ Text inside a button, badge or card looks low or off-centre, because the font's 
 ## Reduced motion
 
 Not affected.
+
+## Patch
+
+```css
+& {
+  text-box-trim: trim-both;
+  text-box-edge: cap alphabetic;
+}
+```

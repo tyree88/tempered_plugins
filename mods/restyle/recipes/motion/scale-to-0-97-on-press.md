@@ -31,3 +31,25 @@ button:active {
 ## Reduced motion
 
 Do not scale. Show the press with a background colour change on `:active` instead.
+
+## Patch
+
+```css
+& {
+  transition: scale 150ms ease-out;
+}
+
+&:active {
+  scale: 0.97;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  & {
+    transition: none;
+  }
+
+  &:active {
+    scale: 1;
+  }
+}
+```

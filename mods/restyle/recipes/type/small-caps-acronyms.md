@@ -36,3 +36,14 @@ abbr {
 ## Reduced motion
 
 Not affected.
+
+## Patch
+
+```css
+& {
+  font-variant-caps: all-small-caps;
+  letter-spacing: 0.05em;
+  font-variant-numeric: oldstyle-nums;
+  text-decoration: none;
+}
+```

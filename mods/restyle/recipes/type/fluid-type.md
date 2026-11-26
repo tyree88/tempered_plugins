@@ -35,3 +35,12 @@ body {
 ## Reduced motion
 
 Not affected.
+
+## Patch
+
+```css
+& {
+  font-size: clamp(2rem, 1.413rem + 2.609vw, 3.5rem);
+  line-height: 1.1;
+}
+```

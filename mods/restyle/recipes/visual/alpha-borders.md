@@ -35,3 +35,17 @@ The same bordered component appears on white, tinted, saturated and gradient sur
 ## Reduced motion
 
 Not affected.
+
+## Patch
+
+```css
+& {
+  border-color: rgb(0 0 0 / 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  & {
+    border-color: rgb(255 255 255 / 0.12);
+  }
+}
+```

@@ -53,3 +53,33 @@ Do not use it on light backgrounds or for body text: white text on a light surfa
 ## Reduced motion
 
 The flicker stops. The text stays fully lit with its glow.
+
+## Patch
+
+```css
+& {
+  color: #fff;
+  text-shadow:
+    0 0 4px #fff,
+    0 0 12px #ff2e88,
+    0 0 28px #ff2e88,
+    0 0 60px #ff2e88;
+  animation: restyle-neon-flicker 4s infinite;
+}
+
+@keyframes restyle-neon-flicker {
+  0%, 92%, 96%, 100% {
+    opacity: 1;
+  }
+
+  94% {
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  & {
+    animation: none;
+  }
+}
+```

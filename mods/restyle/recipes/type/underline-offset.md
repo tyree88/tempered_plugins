@@ -37,3 +37,20 @@ a:hover {
 ## Reduced motion
 
 Not affected.
+
+## Patch
+
+```css
+& {
+  text-decoration-line: underline;
+  text-underline-offset: 0.2em;
+  text-decoration-thickness: 0.06em;
+  text-decoration-skip-ink: auto;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+
+&:hover {
+  text-decoration-thickness: 0.12em;
+  text-decoration-color: currentColor;
+}
+```

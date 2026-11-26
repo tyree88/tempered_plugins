@@ -45,3 +45,31 @@ A dropdown, select list or context menu opens and closes many times a day. Keep 
 ## Reduced motion
 
 Keep the opacity fade (200 ms open, 160 ms close). Remove the scale: set `scale: 1` in both states.
+
+## Patch
+
+```css
+& {
+  transform-origin: top left;
+  animation: restyle-dropdown-open 200ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes restyle-dropdown-open {
+  from {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
+
+@keyframes restyle-dropdown-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  & {
+    animation-name: restyle-dropdown-fade;
+  }
+}
+```

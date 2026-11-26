@@ -43,3 +43,33 @@ An image or heading is revealed, or a control changes fill colour. Wipe it in wi
 ## Reduced motion
 
 No wipe. Set the clip path to its end value at once and fade the content or fill in over the same duration.
+
+## Patch
+
+```css
+& {
+  animation: restyle-mask-reveal 250ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes restyle-mask-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes restyle-mask-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  & {
+    animation-name: restyle-mask-fade;
+  }
+}
+```

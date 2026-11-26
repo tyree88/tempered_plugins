@@ -32,3 +32,30 @@ An element appears on screen: a menu, popover, tooltip, toast or dialog. It must
 ## Reduced motion
 
 Keep the opacity fade at the same duration. Remove the scale and any translate, so nothing moves.
+
+## Patch
+
+```css
+& {
+  animation: restyle-ease-out-enter 200ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes restyle-ease-out-enter {
+  from {
+    opacity: 0;
+    scale: 0.97;
+  }
+}
+
+@keyframes restyle-ease-out-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  & {
+    animation-name: restyle-ease-out-fade;
+  }
+}
+```

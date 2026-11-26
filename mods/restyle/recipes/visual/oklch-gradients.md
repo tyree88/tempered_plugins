@@ -28,3 +28,12 @@ A gradient runs between two distant hues, such as blue to orange. The default sR
 ## Reduced motion
 
 Not affected.
+
+## Patch
+
+```css
+& {
+  background: linear-gradient(90deg, #2563eb, #f59e0b);
+  background: linear-gradient(90deg in oklch, #2563eb, #f59e0b);
+}
+```

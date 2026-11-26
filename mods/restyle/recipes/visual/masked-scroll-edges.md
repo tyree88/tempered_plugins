@@ -28,3 +28,11 @@ A horizontal carousel or scroll row cuts its items off hard at the container edg
 ## Reduced motion
 
 Not affected.
+
+## Patch
+
+```css
+& {
+  mask: linear-gradient(90deg, #0000, #000 15% 85%, #0000);
+}
+```
