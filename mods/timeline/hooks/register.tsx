@@ -3,7 +3,7 @@ import type { EngineInterface as Engine, Register } from 'claude-code'
 
 import type { Entry, LiveAgent, Task, View } from '../types'
 import { buildNodes, buildPanel } from './layout'
-import { ciFact, clip, factsFromBash, folderName, fromLog, lastCd, mainArg, mergeEntries, parseJsonl, repoRoot, toJsonl, tzMinutes, type Found } from './model'
+import { ASKS, ciFact, clip, factsFromBash, folderName, fromLog, lastCd, mainArg, mergeEntries, parseJsonl, repoRoot, toJsonl, tzMinutes, type Found } from './model'
 import { drawPane } from './pane'
 import { parsePlan, type Plan } from './plan'
 import { applyTaskCall, createdId, fromTaskList } from './tasks'
@@ -21,7 +21,7 @@ const PLAN_MAX_BYTES = 262_144 // a bigger .md is not read for plan detection
 const AUTO_OPEN_TASKS = 3 // open tasks that make the pane worth opening
 
 const MAIN_NOTE =
-  'Timeline: call `mcp__timeline__log` (1) once after a user message that sets or changes direction: kind "talk", title = one-line summary of what they asked or decided; (2) when you start a task, finish a step of it, finish it, or get blocked: kind "work", a stable kebab-case `task`, `done`/`total` steps, `status`, `how` (one line), `next` (one line). Never once per tool call; about one entry every few minutes of work. Do not mention the logging in replies. Write `title`, `how` and `next` in Simplified Technical English: one short declarative sentence each (max 12 words), active voice, present tense, exact names, no filler or hedging.'
+  'Timeline: call `mcp__timeline__log` (1) once after a user message that sets or changes direction: kind "talk", title = one-line summary of what they asked or decided; (2) when you start a task, finish a step of it, finish it, or get blocked: kind "work", a stable kebab-case `task`, `done`/`total` steps, `status`, `how` (one line), `next` (one line). When the user must do the next step, add `ask`: merge, decide, review, run (a command or an app step) or account (a secret, a payment, a sign-in); name the pull request in `next`. Never once per tool call; about one entry every few minutes of work. Do not mention the logging in replies. Write `title`, `how` and `next` in Simplified Technical English: one short declarative sentence each (max 12 words), active voice, present tense, exact names, no filler or hedging.'
 const AGENT_NOTE =
   '\n\nWhile you work, call `mcp__timeline__log` with kind "work" at start, after each step, and at the end, with `done`/`total`, `how`, and `next`. Keep each call short. Write `title`, `how` and `next` in Simplified Technical English: one short declarative sentence each (max 12 words), active voice, present tense, exact names, no filler or hedging.'
 
@@ -37,6 +37,7 @@ const INPUT_SCHEMA = {
     status: { enum: ['active', 'done', 'blocked'] },
     how: { type: 'string' },
     next: { type: 'string' },
+    ask: { enum: [...ASKS] },
   },
 }
 
@@ -337,7 +338,7 @@ export const register: Register = on => {
     await $.tool.register({
       name: 'log',
       description:
-        'Record an entry on this repo\'s orchestration timeline. kind "talk": one-line summary of what the user asked or decided. kind "work": a task milestone with a stable kebab-case task id, done/total steps, status, how, and next. Use Simplified Technical English: short, active, no filler.',
+        'Record an entry on this repo\'s orchestration timeline. kind "talk": one-line summary of what the user asked or decided. kind "work": a task milestone with a stable kebab-case task id, done/total steps, status, how, and next. ask: set it only when the user must do the next step (merge, decide, review, run, account). Use Simplified Technical English: short, active, no filler.',
       inputSchema: INPUT_SCHEMA,
     })
     await $.command.register({ name: 'timeline', description: 'Show or hide the orchestration timeline pane' })

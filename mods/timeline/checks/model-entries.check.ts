@@ -27,6 +27,9 @@ assert.deepEqual(fromLog({ kind: 'work', title: 'x', task: 'Lobby Route', status
 })
 
 assert.equal((fromLog({ kind: 'work', title: 'x', total: 4, done: -2 }, stamp) as { done: number }).done, 0)
+assert.equal((fromLog({ kind: 'work', title: 'x', next: 'Owner merges PR 12.', ask: 'merge' }, stamp) as { ask?: string }).ask, 'merge')
+assert.equal('ask' in (fromLog({ kind: 'work', title: 'x', ask: 'nap' }, stamp) as object), false)
+assert.equal('ask' in (fromLog({ kind: 'talk', title: 'x', ask: 'merge' }, stamp) as object), false)
 assert.ok('error' in fromLog({ kind: 'work' }, stamp))
 assert.ok('error' in fromLog({ kind: 'note', title: 'x' }, stamp))
 assert.equal(clip(`${'x'.repeat(78)}😀 tail`, 80), `${'x'.repeat(78)}…`)

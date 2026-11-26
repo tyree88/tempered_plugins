@@ -11,6 +11,9 @@ export function clip(value: unknown, max: number): string | undefined {
   return text.length > max ? `${text.slice(0, max - 1).replace(/[\uD800-\uDBFF]$/, '')}…` : text
 }
 
+// What the next step asks of the user. Readers of the log (the Rex command center) rank by it.
+export const ASKS = ['merge', 'decide', 'review', 'run', 'account'] as const
+
 export function slug(text: string): string {
   return text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').slice(0, 40).replace(/^-+|-+$/g, '') || 'task'
 }
@@ -20,7 +23,7 @@ export function fromLog(input: Record<string, unknown>, stamp: Stamp): Entry | {
   const title = clip(input.title, 80)
   const kind = input.kind
   if (!title || (kind !== 'talk' && kind !== 'work')) {
-    return { error: 'timeline log needs kind ("talk" or "work") and title. Work also takes task, done, total, status, how, next.' }
+    return { error: 'timeline log needs kind ("talk" or "work") and title. Work also takes task, done, total, status, how, next, ask.' }
   }
   if (kind === 'talk') return { v: 1, ...stamp, kind, title }
 
@@ -40,6 +43,9 @@ export function fromLog(input: Record<string, unknown>, stamp: Stamp): Entry | {
   if (how) entry.how = how
   const next = clip(input.next, 120)
   if (next) entry.next = next
+  // An unknown ask is dropped, not refused: the entry is worth more than the label.
+  const ask = ASKS.find(a => a === input.ask)
+  if (ask) entry.ask = ask
   return entry
 }
 

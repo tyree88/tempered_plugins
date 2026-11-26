@@ -32,6 +32,7 @@ export type Entry = {
   status?: 'active' | 'done' | 'blocked'
   how?: string
   next?: string
+  ask?: 'merge' | 'decide' | 'review' | 'run' | 'account'
   agentId?: string
   fact?: Fact
   attachTo?: string
