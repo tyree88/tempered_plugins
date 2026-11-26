@@ -6,6 +6,8 @@ local M = {}
 local HOME = os.getenv("HOME") or ""
 local TERM = "com.superlogical.terminal"
 local DAY = 86400
+-- The folder of this file; cc_pane.sh sits beside it.
+local DIR = debug.getinfo(1, "S").source:gsub("^@", ""):match("^(.*)/[^/]*$")
 
 -- ISO 8601 to Unix seconds. Rex's Lua has no date parser.
 function M.epoch(iso)
@@ -184,7 +186,7 @@ local function go(row, ctx)
     local e = row.thread
     -- A worktree that no longer exists makes Rex start the shell in the home directory.
     local w, err = rex.session.new_window{
-      window_label = e.task:sub(1, 128),
+      window_label = tostring(e.task or "thread"):sub(1, 128),
       layout = rex.layout.block{ flavor = TERM .. ".shell", options = { cwd = e.worktree } },
     }
     if err then error(err, 0) end
@@ -192,13 +194,15 @@ local function go(row, ctx)
     if tostring(e.session or ""):match("^[%w-]+$") then
       rex.block.call(TERM, "write", { block_id = w.block_ids[1], data = "claude --resume " .. e.session })
     end
-  elseif row.url then
+  elseif tostring(row.url or ""):match("^https://") then
     local r = rex.exec({ "gh", "pr", "view", row.url, "--web" }, { cwd = HOME, timeout = 10 })
     if not (r and r.ok) then error("gh pr view: " .. (r and r.stderr or "did not run"), 0) end
   end
 end
 
-local function show(title, rows, ctx)
+local function show(title, rows, ctx, args)
+  -- rows=true skips the prompt and returns the rows; cc_pane.sh reads them.
+  if args.rows then return rows end
   local items = {}
   for i, r in ipairs(rows) do
     items[i] = { id = tostring(i), title = r.title, subtitle = r.subtitle, detail = r.detail, icon = r.icon }
@@ -206,7 +210,7 @@ local function show(title, rows, ctx)
   local id, why = rex.ui.pick{ title = title, placeholder = "Filter", items = items }
   if id then return go(rows[tonumber(id)], ctx) end
   -- No app can show the list: return it, so `rex do <action>` prints it.
-  if why == "unsupported" or why == "no_client" then return items end
+  if why == "unsupported" or why == "no_client" then return rows end
 end
 
 local function error_row(source, err)
@@ -218,7 +222,8 @@ rex.action{
   title = "Needs Me",
   category = "Command Center",
   description = "Everything waiting on you: panes, timeline tasks and open pull requests.",
-  run = function(ctx)
+  args = { rows = "boolean?" },
+  run = function(ctx, args)
     local prs, pr_err = read_prs()
     local tasks, task_err = read_tasks()
     local name = rex.exec({ "git", "config", "--global", "user.name" }, { cwd = HOME })
@@ -227,7 +232,7 @@ rex.action{
     -- A source that failed shows as a row. Rows are never silently missing.
     if not prs then rows[#rows + 1] = error_row("gh", pr_err) end
     if not tasks then rows[#rows + 1] = error_row("timeline", task_err) end
-    return show("Needs me", rows, ctx)
+    return show("Needs me", rows, ctx, args)
   end,
 }
 
@@ -236,11 +241,40 @@ rex.action{
   title = "Threads",
   category = "Command Center",
   description = "Timeline tasks still marked active in the last 30 days, almost-done first.",
-  run = function(ctx)
+  args = { rows = "boolean?" },
+  run = function(ctx, args)
     local tasks, task_err = read_tasks()
     local rows = M.thread_rows(tasks or {}, os.time())
     if not tasks then rows[#rows + 1] = error_row("timeline", task_err) end
-    return show("Threads", rows, ctx)
+    return show("Threads", rows, ctx, args)
+  end,
+}
+
+rex.action{
+  name = "cc_open",
+  title = "Open Command Center Row",
+  category = "Command Center",
+  description = "Opens one row that needs_me or threads returned. cc_pane.sh calls it.",
+  args = { row = "object" },
+  run = function(ctx, args) return go(args.row, ctx) end,
+}
+
+rex.action{
+  name = "cc_pane",
+  title = "Command Center Pane",
+  category = "Command Center",
+  description = "Opens a floating pane that lists needs_me or threads in fzf.",
+  args = { list = "string?" },
+  run = function(ctx, args)
+    local list = args.list == "threads" and "threads" or "needs_me"
+    local layer, err = rex.session.new_layer{
+      bounds = { 0.1, 0.1, 0.8, 0.8 }, focus = true,
+      layout = rex.layout.block{
+        flavor = TERM .. ".shell", options = { command = { DIR .. "/cc_pane.sh", list } },
+      },
+    }
+    if err then error(err, 0) end
+    return { block_id = layer.block_ids[1] }
   end,
 }
 

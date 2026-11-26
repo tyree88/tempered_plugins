@@ -6,6 +6,7 @@
 |---|---|---|
 | Needs Me | `needs_me` | Panes whose program is blocked, failed or finished. Then tasks whose newest timeline entry is blocked or gives you the next step (last 7 days). Then your open pull requests. |
 | Threads | `threads` | Tasks that are still active in the timeline logs (last 30 days). Tasks that are almost done come first. |
+| Command Center Pane | `cc_pane` | The same rows in a floating pane that runs `fzf`. It adds colors and a preview of the row. `rex do cc_pane list=threads` shows Threads. |
 
 When you pick a row:
 
@@ -29,6 +30,7 @@ Your first name comes from `git config --global user.name`. A task's next step i
 
 - Rex with `rex.ui.pick`. The Rex app and the Rex server must be versions that can show prompts to each other.
 - `git`, `gh` (signed in) and `jq` on the Rex server's `PATH`.
+- `fzf`, for the pane only.
 - The `timeline` mod, for task rows.
 
 ## Install
@@ -40,19 +42,31 @@ package.path = os.getenv("HOME") .. "/src/tempered_plugins/rex/?.lua;" .. packag
 require("cc")
 rex.bind("cmd+shift+m", "needs_me")
 rex.bind("cmd+shift+y", "threads")
+rex.bind("cmd+shift+k", "cc_pane")
 ```
 
-Then run `rex config reload`. Run `rex keymap` to make sure that the two keys are free.
+Then run `rex config reload`. Run `rex keymap` to make sure that the three keys are free.
 
-## Without a picker
+## The pane
 
-If no Rex app can show the list, the action returns the rows. `rex do needs_me` and `rex do threads` then print them as JSON in the terminal.
+`cc_pane` opens a floating pane and runs `cc_pane.sh` in it. In the pane:
+
+- Type to filter the rows.
+- Enter opens the row and closes the pane.
+- Ctrl-R reads the rows again.
+- Esc closes the pane.
+
+The script gets its rows from `rex do needs_me rows=true`. It opens a row through the `cc_open` action, so the pane and the pick-lists do the same thing for each row.
+
+## Rows as JSON
+
+`rex do needs_me rows=true` and `rex do threads rows=true` print the rows as JSON and show no list. An action also returns the rows when no Rex app can show the list.
 
 ## Check
 
 ```sh
 cd rex && rex do cc_check.lua      # prints "cc_check: ok"
-rex config check ~/.config/rex/init.lua   # reports 2 actions
+rex config check ~/.config/rex/init.lua   # reports 4 actions
 ```
 
 ## Limits
