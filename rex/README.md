@@ -29,7 +29,7 @@ Your first name comes from `git config --global user.name`. A task's next step i
 ## Requirements
 
 - Rex with `rex.ui.pick`. The Rex app and the Rex server must be versions that can show prompts to each other.
-- `git`, `gh` (signed in) and `jq` on the Rex server's `PATH`.
+- `git`, `gh` (signed in) and `jq`. The Rex server does not read your shell profile, so the module adds `/opt/homebrew/bin`, `/usr/local/bin` and `~/.local/bin` to the `PATH` of the commands it runs.
 - `fzf`, for the pane only.
 - The `timeline` mod, for task rows.
 
@@ -75,4 +75,4 @@ rex config check ~/.config/rex/init.lua   # reports 4 actions
 - Task rows are written by agents and can be out of date.
 - Pull request numbers are compared across all repos, so a closed pull request can keep a row if another repo has an open pull request with the same number.
 - Codex and Gemini sessions show only as pull requests, because they do not write timeline logs.
-- The jump to a pane in a different session uses a client action. It can need the Remote Control setting in the Rex app.
+- The jump to a pane in a different session moves the focus, then asks the Rex app to show that session. From the pane and from `rex do`, the app shows it only when Remote Control is on in the app's settings.

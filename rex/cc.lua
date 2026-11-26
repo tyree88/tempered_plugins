@@ -126,8 +126,16 @@ function M.thread_rows(tasks, now)
   return rows
 end
 
+-- An action from init.lua runs commands with the Rex server's PATH, which the app starts
+-- without the shell profile. Homebrew and ~/.local/bin are added so that gh is found.
+local PATH = "/opt/homebrew/bin:/usr/local/bin:" .. HOME .. "/.local/bin:" .. (os.getenv("PATH") or "/usr/bin:/bin")
+
+local function run(argv)
+  return rex.exec(argv, { cwd = HOME, timeout = 10, env = { PATH = PATH } })
+end
+
 local function exec_json(argv)
-  local r, err = rex.exec(argv, { cwd = HOME, timeout = 10 })
+  local r, err = run(argv)
   if not r then return nil, err end
   if not r.ok then return nil, r.stderr:match("[^\n]+") or ("exit " .. r.code) end
   return rex.json.decode(r.stdout)
@@ -139,6 +147,7 @@ local function read_prs()
 end
 
 -- The newest main-loop work entry per repo and task from the timeline mod's logs.
+-- A session that changes folder logs one task under two repos; the second pass keeps the newest.
 local TASK_FILTER = [[select(.kind == "work" and .task != null and .agentId == null)
   | {repo: (input_filename | split("/")[-2] | sub("-[0-9a-f]{8}$"; "")),
      task, status, done, total, next, session, worktree, at}]]
@@ -146,7 +155,7 @@ local TASK_FILTER = [[select(.kind == "work" and .task != null and .agentId == n
 local function read_tasks()
   return exec_json({ "sh", "-c",
     [[find "$1" -name '*.jsonl' -mtime -30 -print0 | xargs -0 jq -c "$2" |
-      jq -sc 'group_by([.repo, .task]) | map(max_by(.at))']],
+      jq -sc 'group_by([.repo, .task]) | map(max_by(.at)) | group_by([.session, .task]) | map(max_by(.at))']],
     "sh", HOME .. "/.claude/timelines", TASK_FILTER })
 end
 
@@ -154,7 +163,12 @@ local function read_status()
   local out = {}
   local list = rex.call("session.list") or {}
   for _, s in ipairs(list.sessions or {}) do
-    local view = rex.call("session.view", { session_id = s.session_id }) or {}
+    local view = rex.call("session.view", { session_id = s.session_id })
+    if not view then
+      -- A client such as `rex do` is attached to one session. Attach to read the others.
+      local attached = rex.call("session.attach", { session_id = s.session_id })
+      view = attached and attached.view or {}
+    end
     for _, w in ipairs(view.windows or {}) do
       for _, layer in ipairs(w.layers or {}) do
         for _, b in ipairs(layer.blocks or {}) do
@@ -177,6 +191,7 @@ end
 local function go(row, ctx)
   if row.pane then
     local p = row.pane
+    rex.call("session.attach", { session_id = p.session_id })
     local _, err = rex.call("session.focus_block", { session_id = p.session_id, block_id = p.block_id })
     if err then error(err, 0) end
     if p.session_id ~= ctx.session_id then
@@ -195,7 +210,7 @@ local function go(row, ctx)
       rex.block.call(TERM, "write", { block_id = w.block_ids[1], data = "claude --resume " .. e.session })
     end
   elseif tostring(row.url or ""):match("^https://") then
-    local r = rex.exec({ "gh", "pr", "view", row.url, "--web" }, { cwd = HOME, timeout = 10 })
+    local r = run({ "gh", "pr", "view", row.url, "--web" })
     if not (r and r.ok) then error("gh pr view: " .. (r and r.stderr or "did not run"), 0) end
   end
 end
@@ -226,7 +241,7 @@ rex.action{
   run = function(ctx, args)
     local prs, pr_err = read_prs()
     local tasks, task_err = read_tasks()
-    local name = rex.exec({ "git", "config", "--global", "user.name" }, { cwd = HOME })
+    local name = run({ "git", "config", "--global", "user.name" })
     local me = name and name.stdout:match("^(%a+)")
     local rows = M.needs_rows(read_status(), tasks or {}, prs, me, os.time())
     -- A source that failed shows as a row. Rows are never silently missing.
