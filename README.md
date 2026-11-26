@@ -16,6 +16,7 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 | `focus-group/` | Claude Code | Shows a side pane for a run of the `self-staffing-focus-group` skill: the agents, the gates G0 to G5, and the findings. Makes reviewer and verifier agents run in the foreground, and refuses a "verified" result while an agent still runs. |
 | `code-tracer/` | Claude Code | Shows a side pane of every code change in the session: the file and lines, the diff hunk, the agent that made it, its stated reason, the test run that covered it, and a signed ambition sum with the signals behind it. It marks files two agents changed and the lines that overlap. `/code-tracer export` writes a markdown report. |
 | `multi-harness/` | Codex | Gives Codex 6 skills to plan large work in waves and to track it to completion. |
+| [`rex/`](rex/README.md) | Rex | Adds 2 pick-lists to the Rex command palette: the work that waits for you, and the tasks that are still open. |
 | `.claude-plugin/marketplace.json` | Claude Code | Lists the 6 Claude Code plugins so that Claude Code can install them from this repository. |
 
 ## Why these plugins exist
