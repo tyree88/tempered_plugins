@@ -4,7 +4,7 @@
 
 | Command | Action name | What the list shows |
 |---|---|---|
-| Needs Me | `needs_me` | Panes whose program is blocked, failed or finished. Then tasks whose newest timeline entry is blocked or gives you the next step (last 7 days). Then your open pull requests. |
+| Needs Me | `needs_me` | Panes whose program is blocked, failed or finished. Then tasks whose newest timeline entry is blocked or gives you the next step (last 3 days). Then your open pull requests that changed in the last 14 days. |
 | Threads | `threads` | Tasks that are still active in the timeline logs (last 30 days). Tasks that are almost done come first. |
 | Command Center Pane | `cc_pane` | The same rows in a floating pane that runs `fzf`. It adds colors and a preview of the row. `rex do cc_pane list=threads` shows Threads. |
 
@@ -73,6 +73,7 @@ rex config check ~/.config/rex/init.lua   # reports 4 actions
 
 - A list is a snapshot. Open it again to update it.
 - Task rows are written by agents and can be out of date.
+- Needs Me leaves out tasks older than 3 days and pull requests untouched for 14 days. They still exist; the list only stays short.
 - Pull request numbers are compared across all repos, so a closed pull request can keep a row if another repo has an open pull request with the same number.
 - Codex and Gemini sessions show only as pull requests, because they do not write timeline logs.
 - The jump to a pane in a different session moves the focus, then asks the Rex app to show that session. From the pane and from `rex do`, the app shows it only when Remote Control is on in the app's settings.

@@ -23,7 +23,7 @@ local tasks = {
   { repo = "app", task = "gone", status = "blocked", done = 1, total = 2,
     next = "Owner merges #99.", at = "2026-11-26T09:00:00.000Z" },
   { repo = "app", task = "old", status = "blocked", done = 1, total = 2,
-    next = "Owner decides.", at = "2026-11-01T12:00:00.000Z" },
+    next = "Owner decides on #7.", at = "2026-11-22T12:00:00.000Z" },
   { repo = "app", task = "wip", status = "active", done = 4, total = 5,
     next = "Run the tests.", at = "2026-11-26T11:00:00.000Z" },
   { repo = "app", task = "early", status = "active", done = 1, total = 5,
@@ -32,6 +32,8 @@ local tasks = {
 local prs = {
   { number = 12, title = "Ship it", url = "https://example.test/pull/12", isDraft = false,
     updatedAt = "2026-11-26T10:00:00Z", repository = { name = "app" } },
+  { number = 7, title = "Stale", url = "https://example.test/pull/7", isDraft = true,
+    updatedAt = "2026-11-01T10:00:00Z", repository = { name = "app" } },
 }
 local status = {
   { state = "working", label = "web", app = "codex", updated_at = "2026-11-26T11:59:00Z" },
@@ -40,6 +42,7 @@ local status = {
 }
 
 local rows = cc.needs_rows(status, tasks, prs, "Sam", now)
+-- Left out: the task older than 3 days and the PR untouched for 14 days.
 assert(#rows == 3, "blocked pane, owner task, open PR")
 assert(rows[1].title == "blocked  api · claude-code" and rows[1].detail == "10m")
 assert(rows[2].title == "owner  app · ship" and rows[2].detail == "1d")

@@ -63,7 +63,8 @@ local function append_newest_first(rows, group)
   for _, r in ipairs(group) do rows[#rows + 1] = r end
 end
 
--- Needs Me: panes that wait, then tasks that hand the owner a step, then open pull requests.
+-- Needs Me: panes that wait, then tasks that hand the owner a step (3 days), then open pull
+-- requests touched in the last 14 days. Older ones are left out to keep the list short.
 function M.needs_rows(status, tasks, prs, me, now)
   local rows, group = {}, {}
   for _, r in ipairs(status) do
@@ -85,7 +86,7 @@ function M.needs_rows(status, tasks, prs, me, now)
   group = {}
   for _, e in ipairs(tasks) do
     local t = M.epoch(e.at) or 0
-    if now - t <= 7 * DAY and (e.status == "blocked" or M.owner_facing(e.next, me))
+    if now - t <= 3 * DAY and (e.status == "blocked" or M.owner_facing(e.next, me))
       and not M.cleared(e.next, open) then
       local r = thread_row("owner", e, t, now)
       r.icon = "person"
@@ -97,10 +98,12 @@ function M.needs_rows(status, tasks, prs, me, now)
   group = {}
   for _, p in ipairs(prs or {}) do
     local t = M.epoch(p.updatedAt) or now
-    group[#group + 1] = {
-      title = "pr  " .. p.repository.name .. " #" .. p.number .. " · " .. p.title,
-      subtitle = p.isDraft and "draft" or "ready", detail = age(now, t), icon = "branch", at = t, url = p.url,
-    }
+    if now - t <= 14 * DAY then
+      group[#group + 1] = {
+        title = "pr  " .. p.repository.name .. " #" .. p.number .. " · " .. p.title,
+        subtitle = p.isDraft and "draft" or "ready", detail = age(now, t), icon = "branch", at = t, url = p.url,
+      }
+    end
   end
   append_newest_first(rows, group)
   return rows
@@ -236,7 +239,7 @@ rex.action{
   name = "needs_me",
   title = "Needs Me",
   category = "Command Center",
-  description = "Everything waiting on you: panes, timeline tasks and open pull requests.",
+  description = "What waits on you: panes, timeline tasks (3 days) and open pull requests (14 days).",
   args = { rows = "boolean?" },
   run = function(ctx, args)
     local prs, pr_err = read_prs()
