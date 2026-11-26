@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Restyle</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="win">
+  <header class="bar">
+    <form class="run" id="run">
+      <label for="url">Site</label>
+      <input class="field" id="url" type="text" value="http://localhost:3000" spellcheck="false" autocomplete="off">
+      <label for="pages">Pages</label>
+      <input class="field" id="pages" type="number" min="1" max="50" value="5">
+      <button class="btn primary" id="go" type="submit">Run audit</button>
+    </form>
+  </header>
+
+  <div class="body">
+    <aside class="side">
+      <nav class="nav" aria-label="Views">
+        <button type="button" data-view="board"><span>Board</span><b id="n-board"></b></button>
+        <button type="button" data-view="queue"><span>Queue</span><b id="n-queue"></b></button>
+        <button type="button" data-view="catalog"><span>Catalog</span><b id="n-catalog"></b></button>
+      </nav>
+      <div>
+        <h2>Last audit</h2>
+        <p class="last" id="last">None yet.</p>
+      </div>
+    </aside>
+
+    <div class="main">
+      <section id="v-board">
+        <div class="listcol">
+          <div class="filters" id="filters" role="group" aria-label="Filter findings"></div>
+          <div id="list"></div>
+        </div>
+        <div id="detail"></div>
+      </section>
+
+      <section id="v-queue" class="page" hidden></section>
+
+      <section id="v-catalog" class="page" hidden>
+        <h2>Catalog</h2>
+        <div class="cat-tools">
+          <input class="field" id="q" type="search" placeholder="Search by name or kind" aria-label="Search recipes">
+          <div class="filters bare" id="cats" role="group" aria-label="Category"></div>
+          <label for="live"><input id="live" type="checkbox"> Live preview only</label>
+          <span class="muted" id="cat-count" role="status"></span>
+        </div>
+        <ul id="cat-rows"></ul>
+      </section>
+    </div>
+  </div>
+
+  <footer class="status">
+    <span id="say" role="status">Loading.</span>
+    <span class="keys"><span><kbd>J</kbd> <kbd>K</kbd> move</span><span><kbd>1</kbd>–<kbd>9</kbd> pick</span><span><kbd>A</kbd> accept</span><span><kbd>D</kbd> dismiss</span></span>
+  </footer>
+</div>
+<script src="app.js" nonce="__NONCE__"></script>
+</body>
+</html>

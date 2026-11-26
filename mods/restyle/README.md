@@ -67,6 +67,10 @@ Limits: a dismissal is known by the rule and the selector, so it can hide a find
 
 To run the audit without the pane: `node bridge/audit-url.mjs <url> [more urls] [--pages 5] [--out <file>]`. It prints one JSON line for each step and writes the board's data file. The default file is `restyle-board/board.json` in your temporary folder.
 
+## Desktop app (scaffold)
+
+`desktop/` holds an Electron app that does the audit, the board and the prompts in one window, with no Claude Code session. It uses this mod's driver, catalog and prompt code as they are. It runs from source and is not packaged. See [desktop/README.md](desktop/README.md).
+
 ## How to add a recipe
 
 1. Make a file `recipes/<category>/<slug>.md`. The category is `motion`, `type`, `visual` or `effect`. Choose it by this test: the detail restyles one existing element and adds no markup, so it is `motion`, `type` or `visual`; the detail adds markup, a wrapper, a layer or a filter, so it is `effect`. The pane lists effects last, under "Effects (add markup)". The slug is lower-case letters, digits and hyphens.
