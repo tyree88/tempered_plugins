@@ -1,8 +1,8 @@
 # Tempered Plugins
 
-This repository holds plugins from Tempered Works for AI coding tools. Seven plugins are for Claude Code. One plugin is for Codex.
+This repository holds plugins from Tempered Works for AI coding tools. Eight plugins are for Claude Code. One plugin is for Codex.
 
-A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The seven Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
+A Claude Code "mod" is a plugin of function hooks. A function hook is code that Claude Code runs when an event occurs, for example when a tool call ends. The eight Claude Code plugins here are mods. They run inside Claude Code, in the terminal and in the desktop Code tab.
 
 ## What is in this repository
 
@@ -15,8 +15,9 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 | `lessons/` | Claude Code | Finds wins and pitfalls in your prompts. It then asks Claude to run your own `win-logger` and `pitfall-logger` skills. The status line shows how many entries you logged. |
 | `focus-group/` | Claude Code | Shows a side pane for a run of the `self-staffing-focus-group` skill: the agents, the gates G0 to G5, and the findings. Makes reviewer and verifier agents run in the foreground, and refuses a "verified" result while an agent still runs. |
 | `code-tracer/` | Claude Code | Shows a side pane of every code change in the session: the file and lines, the diff hunk, the agent that made it, its stated reason, the test run that covered it, and a signed ambition sum with the signals behind it. It marks files two agents changed and the lines that overlap. `/code-tracer export` writes a markdown report. |
+| `restyle/` | Claude Code | Takes an Alt+click on an element in your running web app. Shows the element in a side pane with motion, type, visual and effect recipes. Puts the prompt that applies the chosen recipe to the element's source in the prompt box. Ships a design-rules skill and a weekly scout that proposes new recipes in a pull request. |
 | `multi-harness/` | Codex | Gives Codex 6 skills to plan large work in waves and to track it to completion. |
-| `.claude-plugin/marketplace.json` | Claude Code | Lists the 6 Claude Code plugins so that Claude Code can install them from this repository. |
+| `.claude-plugin/marketplace.json` | Claude Code | Lists the 10 plugins so that Claude Code can install them from this repository. |
 
 ## Why these plugins exist
 
@@ -33,6 +34,8 @@ A Claude Code "mod" is a plugin of function hooks. A function hook is code that 
 **focus-group.** The `self-staffing-focus-group` skill sends work to reviewer and verifier subagents. These subagents run in the background by default. In tests, the skill sometimes gave its answer before a verifier returned, and the verifier then found a blocker. focus-group stops this. It runs reviewers and verifiers in the foreground, so the skill waits for them. Its `record` tool refuses a G4 or G5 pass while an agent still runs. The side pane shows what the run waits for, so you know when to trust the result.
 
 **code-tracer.** In a session with several subagents, code changes land from many places at once. The transcript shows tool calls, not code. To learn what an agent changed and why, you scroll or you ask Claude. code-tracer shows each change tied to its code: the file and lines, the diff, the agent, and the reason the agent gave in the sentence before the edit. It also marks when two agents change one file and when their lines overlap, and it shows what each running agent does now. Each change carries a signed ambition sum: a new capability, a test or caller touched, a passing test run and reach into files that import the changed one add points; repeated edits of the same lines and reverted edits take them away. The sum is never shown without its signals, and the header shows evidence counts, not a grade. code-tracer makes no model calls.
+
+**restyle.** Small details make an interface feel finished: a button that scales on press, a popover that grows from its trigger, a link underline at the right offset. To add one, you find the element in the source and you type the exact values for Claude. restyle removes these steps. You Alt+click the element in the browser and you choose a recipe. The prompt box then holds the target `file:line` or selector, the page data in a marked block, the recipe values and the rules. restyle never sends the prompt. You edit it and you press Enter. The recipes are markdown files with exact values, in four categories: motion, type, visual and effect. An effect adds markup, a layer or a filter; the other three restyle the element alone. A design-rules skill, `restyle-rules`, tells Claude the shared values and rules on every interface task. A weekly scout finds new details and proposes them in a draft pull request. A person merges.
 
 **multi-harness.** Large product work needs a plan, branch and pull request gates, tracker updates, QA evidence, and a safe closeout. multi-harness gives Codex a repeatable method for these steps. The method is the same for every product.
 
@@ -58,6 +61,7 @@ Use one of these 2 methods.
 /plugin install lessons@tempered-marketplace
 /plugin install focus-group@tempered-marketplace
 /plugin install code-tracer@tempered-marketplace
+/plugin install restyle@tempered-marketplace
 ```
 
 Install only the plugins that you want.
@@ -267,6 +271,31 @@ The design, its revisions and the decisions behind them are in `mods/code-tracer
 
 code-tracer stores the session's changes and agents in `~/.claude/code-tracer/<repo>/<session>.jsonl` and reads them back when the session resumes; `/clear` starts a new part file so earlier rows survive. It runs one `git grep` per changed file to find importers. It makes no model calls.
 
+## How to use restyle
+
+restyle needs Node on your computer and a web app that runs in a browser on the same computer.
+
+1. Type `/restyle`. The side pane opens, and restyle starts a small server on `127.0.0.1` for this session.
+2. Add the script tag from the pane to your dev app. Or press the button under the tag. The button fills a prompt that asks Claude to add the tag to your dev layout behind a development-only check. The tag must not reach production.
+3. Reload the page. The pane shows that the picker is connected.
+4. Hold Alt and move the pointer over the page. The element under the pointer gets an outline.
+5. Alt+click the element. The pane shows its tag, selector, text and styles. A React dev build also gives the component and `file:line`.
+6. Choose a recipe. Recipes that match the element come first. Use the keys to move and select.
+7. Edit the prompt in the prompt box, then press Enter. restyle never sends it.
+8. Type `/restyle off` to close the pane and stop the server.
+
+Without a pick, the recipes show but you cannot choose one. Without a `file:line`, the prompt tells Claude to find the element by its selector and text. A recipe file that fails validation does not show, and the pane footer counts it.
+
+The prompt puts the page data in a block marked as data from a web page. Claude does not follow instructions in that block.
+
+To add a recipe, write a markdown file in `mods/restyle/recipes/motion/`, `type/`, `visual/` or `effect/`. `mods/restyle/README.md` gives the format.
+
+The weekly scout is the `restyle-scout` skill. Drop screenshots, links and notes in `mods/restyle/inbox/` during the week. Make a scheduled task in your own account that runs the skill once a week. The scout keeps at most 5 new recipes and opens one draft pull request. It never merges and never pushes to `main`.
+
+The design is in `mods/restyle/docs/design.md`.
+
+Usage cost: restyle makes no model calls. The server reads only requests that carry the session token.
+
 ## How to use limit-resume
 
 limit-resume needs no action. It starts with each session.
@@ -321,6 +350,8 @@ To run the behavior test of timeline, run `claude plugin test timeline`. It runs
 To run the behavior test of followups, run `claude plugin test followups`. It runs 8 cases on the terminal and desktop surfaces.
 
 To run the behavior test of lessons, run `claude plugin test lessons`. It runs 9 cases.
+
+To run the behavior test of restyle, run `claude plugin test restyle`. It runs 8 cases on the terminal and desktop surfaces. Its other checks are Node tests: `node --test checks/*.check.ts bridge/*.test.mjs` from `mods/restyle`.
 
 To run the behavior test of code-tracer, run `claude plugin test code-tracer`. It runs 3 cases on the terminal and desktop surfaces.
 

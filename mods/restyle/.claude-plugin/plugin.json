@@ -1,0 +1,9 @@
+{
+  "name": "restyle",
+  "version": "0.5.0",
+  "description": "Audits your running web app for signs of generic machine-made UI and lists a fix for each in the side pane. Audits a URL with no script tag and shows each finding before and after on a local board, where a reviewer tries recipes on a live copy of the element and accepts or dismisses it. Or Alt+click an element in your running web app; pick a motion, type, visual or effect recipe in the side pane; the prompt box gets the prompt that applies it to that element's source. Fills, never sends. Ships a design-rules skill.",
+  "author": {
+    "name": "Tempered Works"
+  },
+  "types": "./types/index.d.ts"
+}

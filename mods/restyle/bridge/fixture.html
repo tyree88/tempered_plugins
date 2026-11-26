@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>restyle fixture</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem; }
+  #save { border-radius: 8px; padding: 0.5rem 1rem; transition: transform 120ms ease-out; }
+</style>
+</head>
+<body>
+  <!-- To try by hand: add <script src="http://127.0.0.1:<port>/picker.js?t=<token>"></script> before </body>. -->
+  <main>
+    <h1>Restyle fixture</h1>
+    <button id="save" type="button" onclick="window.__clicked = (window.__clicked || 0) + 1">Save changes</button>
+    <ul>
+      <li>First item</li>
+      <li>Second item</li>
+      <li>Third <span>outer <span>inner <span>deepest</span></span></span></li>
+    </ul>
+    <p>Some text with <a href="#top">a link</a>.</p>
+  </main>
+</body>
+</html>

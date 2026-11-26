@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>restyle board</title>
+<!-- The bridge serves this page and puts a fresh nonce in it. The page reads /board.json and posts to /verdict.
+     Every value from the data file goes in as text, never as markup. -->
+<style nonce="__NONCE__">
+  /* Two radii, one duration, the shared ease-out curve (skills/restyle-rules, section 2). */
+  :root {
+    color-scheme: light dark;
+    --bg: oklch(98% 0.004 85);
+    --surface: oklch(100% 0 0);
+    --text: oklch(25% 0.01 85);
+    --muted: oklch(48% 0.01 85);
+    --line: oklch(25% 0.01 85 / 0.14);
+    --accent: oklch(50% 0.13 255);
+    --ok: oklch(46% 0.11 150);
+    --no: oklch(50% 0.15 30);
+    --r-card: 12px;
+    --r-control: 6px;
+    --press: 150ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: oklch(17% 0.005 85);
+      --surface: oklch(22% 0.006 85);
+      --text: oklch(93% 0.005 85);
+      --muted: oklch(70% 0.008 85);
+      --line: oklch(93% 0.005 85 / 0.16);
+      --accent: oklch(76% 0.1 255);
+      --ok: oklch(78% 0.13 150);
+      --no: oklch(76% 0.12 30);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 1120px; margin: 0 auto; padding: 32px 24px 96px; }
+  h1, h2, h3, h4 { text-wrap: balance; margin: 0; line-height: 1.25; }
+  h4 { font-size: 14px; font-weight: 600; }
+  h1 { font-size: 24px; font-weight: 650; }
+  h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 40px 0 12px; }
+  h3 { font-size: 17px; font-weight: 600; }
+  p { margin: 0; }
+  .muted { color: var(--muted); }
+  .counts { margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); padding: 20px; margin-bottom: 16px; display: grid; gap: 14px; }
+  .card[data-verdict="accept"] { border-left: 3px solid var(--ok); }
+  .card[data-verdict="dismiss"] { border-left: 3px solid var(--no); }
+  .shots { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  figure { margin: 0; min-width: 0; max-width: 100%; }
+  figcaption { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  img { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: var(--r-control); }
+  /* The live copy of the element and its shelf of recipes. */
+  .live { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 14px; }
+  .note { font-size: 13px; }
+  iframe { display: block; max-width: 100%; border: 1px solid var(--line); border-radius: var(--r-control); background: var(--bg); }
+  .shelf { display: flex; flex-wrap: wrap; gap: 8px; }
+  .shelf button { min-width: 0; padding: 0 12px; font-weight: 450; text-align: left; }
+  .shelf button[aria-pressed="true"] { color: var(--accent); background: var(--line); }
+  .kind { color: var(--muted); font-size: 12px; margin-right: 6px; text-transform: capitalize; }
+  ul { margin: 0; padding-left: 18px; }
+  code { font: 13px/1.5 ui-monospace, monospace; overflow-wrap: anywhere; }
+  label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  input, textarea { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-control); padding: 8px 10px; min-height: 40px; width: 100%; }
+  textarea { resize: vertical; }
+  .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button { font: inherit; font-weight: 550; color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: var(--r-control); min-width: 96px; min-height: 40px; padding: 0 16px; cursor: pointer; transition: scale var(--press), background-color var(--press); }
+  button:hover { background: var(--line); }
+  button:active { scale: 0.97; }
+  button[aria-pressed="true"] { border-color: currentColor; }
+  button.accept[aria-pressed="true"] { color: var(--ok); }
+  button.dismiss[aria-pressed="true"] { color: var(--no); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .state { font-size: 13px; }
+  .state[data-kind="accept"] { color: var(--ok); }
+  .state[data-kind="dismiss"], .state[data-kind="error"] { color: var(--no); }
+  @media (prefers-reduced-motion: reduce) {
+    button { transition: none; }
+    button:active { scale: 1; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Design board</h1>
+  <p class="muted" id="about">Loading the board.</p>
+  <p class="counts" id="counts" role="status"></p>
+  <div id="cards"></div>
+</main>
+<script nonce="__NONCE__">
+;(function () {
+  'use strict'
+  var query = location.search // carries the session token
+  var IMAGE = /^data:image\/(webp|png);base64,[A-Za-z0-9+/=]+$/
+  var NONCE = document.currentScript.nonce // a frame made from `srcdoc` is under this page's policy: its styles need the nonce
+  var ROOT = '[data-restyle-root]' // the copied element: `&` in a recipe's patch
+  var MAX_PICKS = 8
+  var cards = []
+  var recipes = {} // by `<category>/<slug>`: name, category, patch
+
+  var recipeOf = function (id) {
+    var r = Object.prototype.hasOwnProperty.call(recipes, id) ? recipes[id] : null
+    return r && typeof r.patch === 'string' && typeof r.name === 'string' ? r : null
+  }
+
+  // The document of a frame: the copy of the element, then the patch of each picked recipe, later ones last.
+  function frameDoc(capsule, ids) {
+    var patches = []
+    for (var i = 0; i < ids.length; i++) {
+      var r = recipeOf(ids[i])
+      if (r) patches.push(r.patch.split('&').join(ROOT))
+    }
+    return '<!doctype html><meta charset="utf-8"><style nonce="' + NONCE + '">html,body{margin:0}body{padding:24px;' +
+      (capsule.backdrop ? 'background:' + capsule.backdrop : '') + '}\n' + capsule.css + '</style><style nonce="' + NONCE + '">' +
+      patches.join('\n') + '</style>' + capsule.html
+  }
+
+  // The frame runs no script and sends no form: `sandbox` with no permission.
+  function frame(capsule, ids, title) {
+    var f = document.createElement('iframe')
+    f.setAttribute('sandbox', '')
+    f.title = title
+    f.width = Math.min((Number(capsule.width) || 1) + 64, 760)
+    f.height = Math.min((Number(capsule.height) || 1) + 72, 640)
+    f.srcdoc = frameDoc(capsule, ids)
+    return f
+  }
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag)
+    if (cls) node.className = cls
+    if (text !== undefined) node.textContent = String(text)
+    return node
+  }
+  var say = function (text) {
+    document.getElementById('about').textContent = text
+  }
+
+  function counts() {
+    var n = { wait: 0, accept: 0, dismiss: 0 }
+    for (var i = 0; i < cards.length; i++) n[cards[i].verdict ? cards[i].verdict.verdict : 'wait']++
+    document.getElementById('counts').textContent = cards.length ? n.wait + ' wait · ' + n.accept + ' accepted · ' + n.dismiss + ' dismissed' : ''
+  }
+
+  function shot(src, caption, alt) {
+    var fig = el('figure')
+    fig.appendChild(el('figcaption', '', caption))
+    var img = el('img')
+    img.alt = alt
+    // The crops are two device pixels for each CSS pixel.
+    img.onload = function () {
+      img.width = Math.round(img.naturalWidth / 2)
+    }
+    img.src = src
+    fig.appendChild(img)
+    return fig
+  }
+
+  function path(url) {
+    try {
+      var u = new URL(url)
+      return u.pathname + u.search
+    } catch (e) {
+      return String(url)
+    }
+  }
+
+  function draw(card) {
+    var box = el('article', 'card')
+    var head = el('div')
+    head.appendChild(el('h3', '', card.name))
+    var widths = (Array.isArray(card.widths) ? card.widths : []).join(' and ')
+    head.appendChild(el('p', 'muted', path(card.page) + (widths ? ' · ' + widths + ' px' : '')))
+    box.appendChild(head)
+
+    var hasBefore = typeof card.before === 'string' && IMAGE.test(card.before)
+    var hasAfter = hasBefore && typeof card.after === 'string' && IMAGE.test(card.after)
+    if (hasBefore) {
+      var shots = el('div', 'shots')
+      shots.appendChild(shot(card.before, 'Before', 'Before: ' + card.name))
+      if (hasAfter) shots.appendChild(shot(card.after, 'After (a preview by a CSS patch)', 'After: ' + card.name))
+      box.appendChild(shots)
+    }
+    if (card.detail) box.appendChild(el('p', '', card.detail))
+    if (Array.isArray(card.changed) && card.changed.length) {
+      var list = el('ul')
+      for (var i = 0; i < card.changed.length; i++) list.appendChild(el('li', '', card.changed[i]))
+      box.appendChild(list)
+    }
+    var fix = el('p')
+    fix.appendChild(el('strong', '', 'Fix: '))
+    fix.appendChild(document.createTextNode(String(card.fix || '')))
+    box.appendChild(fix)
+    if (card.pick && card.pick.selector) box.appendChild(el('code', 'muted', card.pick.selector))
+
+    // The fitting room: a live copy of the element, a variant, and the recipes that fit. A press on a recipe puts
+    // its patch on the variant; a second press takes it off. The picks go with an accept.
+    var picks = []
+    var shelfButtons = {}
+    var redraw = function () {}
+    var capsule = card.capsule && typeof card.capsule.html === 'string' && typeof card.capsule.css === 'string' ? card.capsule : null
+    if (capsule) {
+      var live = el('div', 'live')
+      live.appendChild(el('h4', '', 'Try recipes on a live copy'))
+      live.appendChild(el('p', 'muted note', 'The copy is this element with its computed styles. Hover it and press it. Pick recipes: they stack on the variant.'))
+      var frames = el('div', 'shots')
+      var copyFig = el('figure')
+      copyFig.appendChild(el('figcaption', '', 'Before (live copy)'))
+      copyFig.appendChild(frame(capsule, [], 'Live copy: ' + card.name))
+      var variantFig = el('figure')
+      var variantCap = el('figcaption', '', '')
+      var variantFrame = frame(capsule, [], 'Variant: ' + card.name)
+      variantFig.appendChild(variantCap)
+      variantFig.appendChild(variantFrame)
+      frames.appendChild(copyFig)
+      frames.appendChild(variantFig)
+      live.appendChild(frames)
+      redraw = function () {
+        variantFrame.srcdoc = frameDoc(capsule, picks)
+        variantCap.textContent = picks.length ? 'Variant (' + picks.length + (picks.length === 1 ? ' recipe)' : ' recipes)') : 'Variant (no recipe yet)'
+        for (var id in shelfButtons) shelfButtons[id].setAttribute('aria-pressed', String(picks.indexOf(id) >= 0))
+      }
+      var ids = (Array.isArray(card.shelf) ? card.shelf : []).filter(function (id) { return typeof id === 'string' && recipeOf(id) })
+      if (ids.length) {
+        var shelf = el('div', 'shelf')
+        shelf.setAttribute('role', 'group')
+        shelf.setAttribute('aria-label', 'Recipes that fit this element')
+        ids.forEach(function (id) {
+          var b = el('button')
+          b.type = 'button'
+          b.appendChild(el('span', 'kind', (id === card.fixId ? 'fix · ' : '') + recipeOf(id).category))
+          b.appendChild(document.createTextNode(recipeOf(id).name))
+          b.onclick = function () {
+            var at = picks.indexOf(id)
+            if (at >= 0) picks.splice(at, 1)
+            else if (picks.length < MAX_PICKS) picks.push(id)
+            redraw()
+          }
+          shelfButtons[id] = b
+          shelf.appendChild(b)
+        })
+        live.appendChild(shelf)
+      } else live.appendChild(el('p', 'muted note', 'No recipe with a live preview fits this element.'))
+      if (Array.isArray(card.more) && card.more.length) live.appendChild(el('p', 'muted note', 'These fit too, with no live preview (they add markup or need a script): ' + card.more.join(', ') + '.'))
+      if (Array.isArray(capsule.gaps) && capsule.gaps.length) live.appendChild(el('p', 'muted note', 'What the copy does not show: ' + capsule.gaps.join(' ')))
+      box.appendChild(live)
+    } else if (card.noCapsule) box.appendChild(el('p', 'muted note', 'No live copy: ' + card.noCapsule))
+
+    var fields = el('div', 'fields')
+    var commentLabel = el('label', '', 'Comment')
+    var comment = el('textarea')
+    comment.rows = 1
+    comment.maxLength = 500
+    commentLabel.appendChild(comment)
+    var reasonLabel = el('label', '', 'Reason (necessary for a dismiss)')
+    var reason = el('input')
+    reason.maxLength = 500
+    reasonLabel.appendChild(reason)
+    fields.appendChild(commentLabel)
+    fields.appendChild(reasonLabel)
+    box.appendChild(fields)
+
+    var actions = el('div', 'actions')
+    var accept = el('button', 'accept', 'Accept')
+    var dismiss = el('button', 'dismiss', 'Dismiss')
+    accept.type = dismiss.type = 'button'
+    var state = el('span', 'state')
+    state.setAttribute('role', 'status')
+    actions.appendChild(accept)
+    actions.appendChild(dismiss)
+    actions.appendChild(state)
+    box.appendChild(actions)
+
+    function show(kind, text) {
+      state.dataset.kind = kind
+      state.textContent = text
+    }
+    function mark() {
+      var v = card.verdict
+      box.dataset.verdict = v ? v.verdict : 'wait'
+      accept.setAttribute('aria-pressed', String(!!v && v.verdict === 'accept'))
+      dismiss.setAttribute('aria-pressed', String(!!v && v.verdict === 'dismiss'))
+      if (!v) return show('', '')
+      var n = Array.isArray(v.picks) ? v.picks.length : 0
+      if (v.verdict === 'accept') show('accept', 'Accepted' + (n ? ' with ' + n + (n === 1 ? ' recipe' : ' recipes') : '') + '. The fix prompt is in Claude Code.')
+      else show('dismiss', 'Dismissed. The next audit leaves this finding out.')
+      counts()
+    }
+    function send(verdict) {
+      if (verdict === 'dismiss' && !reason.value.trim()) {
+        show('error', 'Give a reason to dismiss.')
+        reason.focus()
+        return
+      }
+      var sent = verdict === 'accept' ? picks.slice() : []
+      var body = { id: card.id, verdict: verdict, reason: reason.value, comment: comment.value, picks: sent }
+      fetch('/verdict' + query, { method: 'POST', headers: { 'content-type': 'text/plain' }, body: JSON.stringify(body) })
+        .then(function (res) {
+          if (res.status !== 204) return show('error', 'Not saved (status ' + res.status + ').')
+          card.verdict = { verdict: verdict, picks: sent }
+          mark()
+        })
+        .catch(function () {
+          show('error', 'Not saved. Is /restyle still running?')
+        })
+    }
+    accept.onclick = function () {
+      send('accept')
+    }
+    dismiss.onclick = function () {
+      send('dismiss')
+    }
+    if (card.verdict) {
+      reason.value = String(card.verdict.reason || '')
+      comment.value = String(card.verdict.comment || '')
+      if (Array.isArray(card.verdict.picks)) picks = card.verdict.picks.filter(function (id) { return shelfButtons[id] }).slice(0, MAX_PICKS)
+    }
+    redraw()
+    mark()
+    return box
+  }
+
+  fetch('/board.json' + query)
+    .then(function (res) {
+      if (res.status === 404) throw new Error('No board yet. Run /restyle audit <url> in Claude Code.')
+      if (!res.ok) throw new Error('The board did not load (status ' + res.status + ').')
+      return res.json()
+    })
+    .then(function (board) {
+      cards = Array.isArray(board.cards) ? board.cards.filter(function (c) { return c && typeof c.id === 'string' }) : []
+      recipes = board.recipes && typeof board.recipes === 'object' ? board.recipes : {}
+      var pages = Array.isArray(board.pages) ? board.pages.length : 0
+      var made = new Date(String(board.made || ''))
+      say(String(board.origin || '') + ' · ' + pages + (pages === 1 ? ' page' : ' pages') + (isNaN(made) ? '' : ' · ' + made.toLocaleString()) + (cards.length ? '' : ' · The audit found nothing.'))
+      var root = document.getElementById('cards')
+      var tiers = [['generic', 'Signs of generic UI'], ['craft', 'Craft checks']]
+      for (var t = 0; t < tiers.length; t++) {
+        var mine = cards.filter(function (c) { return (c.tier === 'craft' ? 'craft' : 'generic') === tiers[t][0] })
+        if (!mine.length) continue
+        root.appendChild(el('h2', '', tiers[t][1]))
+        for (var i = 0; i < mine.length; i++) root.appendChild(draw(mine[i]))
+      }
+      counts()
+    })
+    .catch(function (err) {
+      say(err.message)
+    })
+})()
+</script>
+</body>
+</html>
